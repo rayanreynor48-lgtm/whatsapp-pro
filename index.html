@@ -271,6 +271,7 @@
     const auth = getAuth(app);
     const db = getDatabase(app);
     const storage = getStorage(app);
+    const SERVIDOR = "https://ThornEldritch.pythonanywhere.com";
 
     // VARIABLES GLOBALES
     let usuarioActual = null;
@@ -816,8 +817,6 @@
       document.getElementById('vista-previa-tamaño').textContent = archivoSeleccionado.tamaño;
       vistaPrevia.classList.remove('oculto');
 
-      // Convertir a base64
-      archivoSeleccionado.data = await archivoABase64(file);
       console.log('✅ Archivo listo:', file.name);
     });
 
@@ -1060,66 +1059,47 @@
         hora: new Date().toISOString()
       };
 
-      // Si hay archivo, subirlo a Storage
+      // Si hay archivo, subirlo a PythonAnywhere
       if (archivoSeleccionado) {
         try {
-          console.log('📤 Iniciando subida de archivo:', archivoSeleccionado.nombre);
-          console.log('📊 Tamaño:', archivoSeleccionado.tamaño);
-          console.log('📋 Tipo:', archivoSeleccionado.file.type);
-          
-          const timestamp = Date.now();
-          const nombreSeguro = archivoSeleccionado.nombre.replace(/[^a-zA-Z0-9.-]/g, '_');
-          const rutaStorage = `chats/${chatId}/${timestamp}_${nombreSeguro}`;
-          
-          console.log('📍 Ruta en Storage:', rutaStorage);
-          
-          const storagePath = storageRef(storage, rutaStorage);
-          
-          // Convertir base64 a blob CORRECTAMENTE
-          let blob;
-          if (archivoSeleccionado.data.startsWith('data:')) {
-            // Tiene el prefijo data:mime;base64
-            const base64Data = archivoSeleccionado.data.split(',')[1];
-            const binaryString = atob(base64Data);
-            const bytes = new Uint8Array(binaryString.length);
-            for (let i = 0; i < binaryString.length; i++) {
-              bytes[i] = binaryString.charCodeAt(i);
-            }
-            blob = new Blob([bytes], { type: archivoSeleccionado.file.type });
-          } else {
-            // Ya es blob o binary string
-            blob = archivoSeleccionado.file;
+          console.log('📤 Subiendo archivo:', archivoSeleccionado.nombre);
+
+          const formData = new FormData();
+          formData.append('file', archivoSeleccionado.file);
+          formData.append('chat_id', chatId);
+          formData.append('de', usuarioActual.uid);
+
+          const respuesta = await fetch("https://ThornEldritch.pythonanywhere.com/upload", {
+            method: "POST",
+            body: formData
+          });
+
+          if (!respuesta.ok) {
+            throw new Error('Servidor respondió ' + respuesta.status);
           }
-          
-          console.log('💾 Blob creado, tamaño:', blob.size, 'bytes');
-          
-          // Subir a Storage con metadata
-          const metadata = {
-            contentType: archivoSeleccionado.file.type,
-            customMetadata: {
-              'uploaded_by': usuarioActual.uid,
-              'original_name': archivoSeleccionado.nombre
-            }
-          };
-          
-          const taskSnapshot = await uploadBytes(storagePath, blob, metadata);
-          console.log('✅ Archivo subido exitosamente');
-          
-          const urlArchivo = await getDownloadURL(taskSnapshot.ref);
-          console.log('✅ URL generada:', urlArchivo.substring(0, 50) + '...');
-          
+
+          const resultado = await respuesta.json();
+          console.log('✅ Respuesta del servidor:', resultado);
+
+          let urlArchivo = resultado.url || resultado.link || resultado.file_url || resultado.archivo_url;
+          if (!urlArchivo && resultado.filename) {
+            urlArchivo = `${SERVIDOR}/uploads/${resultado.filename}`;
+          }
+          if (!urlArchivo) {
+            throw new Error('El servidor no devolvió la URL del archivo');
+          }
+          if (urlArchivo.startsWith('/')) {
+            urlArchivo = SERVIDOR + urlArchivo;
+          }
+
           mensaje.archivo = {
             nombre: archivoSeleccionado.nombre,
             tamaño: archivoSeleccionado.tamaño,
             url: urlArchivo,
-            tipo: archivoSeleccionado.file.type
+            tipo: archivoSeleccionado.file.type || obtenerTipoDelNombre(archivoSeleccionado.nombre)
           };
-          
-          console.log('✅ Objeto archivo creado:', mensaje.archivo.nombre);
         } catch (e) {
-          console.error('❌ ERROR COMPLETO:', e);
-          console.error('Código:', e.code);
-          console.error('Mensaje:', e.message);
+          console.error('❌ Error al subir archivo:', e);
           mostrarMsg('msg-error', '❌ Error al subir archivo: ' + e.message, 'error');
           return;
         }
