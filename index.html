@@ -98,8 +98,6 @@
     .mensaje-audio { width: 100%; }
     .mensaje-archivo { background: rgba(0,0,0,0.05); padding: 10px; border-radius: 4px; text-decoration: none; color: #25d366; display: block; text-align: center; margin-top: 8px; }
 
-    .btn-descargar-archivo { margin-top: 6px; padding: 7px 10px; border: none; border-radius: 6px; background: #25d366; color: white; font-size: 12px; cursor: pointer; }
-    .btn-descargar-archivo:disabled { background: #8bd9ac; cursor: default; }
     .enviar-mensaje { display: flex; padding: 12px 16px; background: #f0f2f5; gap: 10px; align-items: flex-end; }
     .input-area { flex: 1; display: flex; flex-direction: column; gap: 8px; }
     .enviar-mensaje input[type="text"] { border-radius: 18px; border: none; padding: 10px 16px; background: #fff; font-size: 14px; outline: none; margin: 0; }
@@ -256,7 +254,7 @@
   <script type="module">
     import { initializeApp } from "https://www.gstatic.com/firebasejs/12.19.0/firebase-app.js";
     import { getAuth, createUserWithEmailAndPassword, signInWithEmailAndPassword, signOut, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/12.19.0/firebase-auth.js";
-    import { getDatabase, ref, set, get, push, onValue, query, orderByChild, update } from "https://www.gstatic.com/firebasejs/12.19.0/firebase-database.js";
+    import { getDatabase, ref, set, get, push, onValue, query, orderByChild } from "https://www.gstatic.com/firebasejs/12.19.0/firebase-database.js";
     import { getStorage, ref as storageRef, uploadBytes, getDownloadURL } from "https://www.gstatic.com/firebasejs/12.19.0/firebase-storage.js";
 
     const firebaseConfig = {
@@ -297,6 +295,45 @@
     const inputArchivo = document.getElementById('input-archivo');
     const vistaPrevia = document.getElementById('vista-previa-archivo');
     const modal = document.getElementById('modal-imagen');
+
+    // ===== INDEXEDDB: caché local de archivos (Blobs) =====
+    const DB_NAME = "WhatsAppPro_DB";
+    const STORE_NAME = "media_local";
+    let dbLocalPromise = null;
+
+    function iniciarDB() {
+      if (!dbLocalPromise) {
+        dbLocalPromise = new Promise((resolve, reject) => {
+          const req = indexedDB.open(DB_NAME, 1);
+          req.onupgradeneeded = (e) => e.target.result.createObjectStore(STORE_NAME);
+          req.onsuccess = (e) => resolve(e.target.result);
+          req.onerror = () => reject(req.error);
+        });
+      }
+      return dbLocalPromise;
+    }
+
+    function guardarBlobLocal(db, id, blob) {
+      return new Promise((resolve, reject) => {
+        const tx = db.transaction(STORE_NAME, "readwrite");
+        tx.objectStore(STORE_NAME).put(blob, id);
+        tx.oncomplete = () => resolve();
+        tx.onerror = () => reject(tx.error);
+      });
+    }
+
+    function obtenerBlobLocal(db, id) {
+      return new Promise((resolve, reject) => {
+        const tx = db.transaction(STORE_NAME, "readonly");
+        const req = tx.objectStore(STORE_NAME).get(id);
+        req.onsuccess = () => resolve(req.result);
+        req.onerror = () => reject(req.error);
+      });
+    }
+
+    function escaparHTML(t) {
+      return String(t ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+    }
 
     // ===== FUNCIONES UTILITARIAS =====
     function idChat(u1, u2) { return u1 < u2 ? `${u1}_${u2}` : `${u2}_${u1}`; }
@@ -949,163 +986,138 @@
       Notification.requestPermission();
     }
 
-    // ===== DESCARGAR CON PROGRESO Y BORRAR DE LA NUBE =====
-    async function descargarYBorrar(btn, urlArchivo, nombreArchivo, chatId, msgId) {
-      const textoOriginal = btn.textContent;
-      btn.disabled = true;
-      try {
-        const respuesta = await fetch(urlArchivo);
-        if (!respuesta.ok) throw new Error('Servidor respondió ' + respuesta.status);
+    // ===== RENDERIZAR MENSAJES (archivos desde IndexedDB; nube solo la 1ª vez) =====
+    let renderToken = 0;
+    let urlsBlobActivas = [];
 
-        const totalBytes = +respuesta.headers.get('Content-Length') || 0;
-        const lector = respuesta.body.getReader();
-        const chunks = [];
-        let bytesDescargados = 0;
+    async function obtenerArchivoLocal(d, tipo) {
+      const idUnico = d.hora + "_" + d.archivo.nombre;
+      let db = null;
+      let blob = null;
 
-        while (true) {
-          const { done, value } = await lector.read();
-          if (done) break;
-          chunks.push(value);
-          bytesDescargados += value.length;
-          btn.textContent = totalBytes
-            ? `Descargando: ${Math.min(100, Math.round((bytesDescargados / totalBytes) * 100))}%`
-            : `Descargando: ${formatearTamaño(bytesDescargados)}`;
-        }
+      try { db = await iniciarDB(); } catch (e) { console.error('IndexedDB no disponible:', e); }
 
-        // Disparar descarga en el dispositivo
-        const blob = new Blob(chunks);
-        const link = document.createElement('a');
-        link.href = URL.createObjectURL(blob);
-        link.download = nombreArchivo;
-        document.body.appendChild(link);
-        link.click();
-        link.remove();
-        setTimeout(() => URL.revokeObjectURL(link.href), 10000);
+      // 1. Buscar en la memoria del navegador
+      if (db) {
+        try { blob = await obtenerBlobLocal(db, idUnico); } catch (e) { console.error(e); }
+      }
 
-        // Ordenar a Python borrar el archivo del servidor
-        btn.textContent = 'Borrando de la nube...';
-        const nombreServidor = decodeURIComponent(urlArchivo.split('/').pop());
-        const del = await fetch(`${SERVIDOR}/delete-file`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ filename: nombreServidor })
-        });
-        if (!del.ok && del.status !== 404) throw new Error('No se pudo borrar (' + del.status + ')');
-
-        btn.textContent = '🔒 Archivo eliminado de la nube.';
-
-        // Marcar el mensaje como eliminado para todos
-        if (msgId) {
+      // 2. Si no está, descargar de la nube una sola vez y guardar
+      if (!blob) {
+        const urlNube = d.archivo.url || d.archivo.data;
+        if (urlNube) {
           try {
-            await update(ref(db, `chats/${chatId}/mensajes/${msgId}/archivo`), { eliminado: true });
+            console.log('📥 No está local. Descargando de la nube por única vez:', d.archivo.nombre);
+            const respuesta = await fetch(urlNube);
+            if (!respuesta.ok) throw new Error('HTTP ' + respuesta.status);
+            blob = await respuesta.blob();
+            if (tipo && (!blob.type || blob.type === 'application/octet-stream')) {
+              blob = new Blob([blob], { type: tipo });
+            }
+            if (db) {
+              try { await guardarBlobLocal(db, idUnico, blob); } catch (e) { console.error('No se pudo guardar local:', e); }
+            }
           } catch (e) {
-            console.error('No se pudo marcar como eliminado:', e);
+            console.error('Error al descargar de la nube:', e);
+            blob = null;
           }
         }
-      } catch (e) {
-        console.error('❌ Error en descarga/borrado:', e);
-        btn.disabled = false;
-        btn.textContent = '❌ Error, reintentar';
-        setTimeout(() => { btn.textContent = textoOriginal; }, 3000);
       }
+      return blob;
     }
 
-    function renderizarMensajes(mensajes) {
-      cajaMensajes.innerHTML = '';
-      if (mensajes.length === 0) {
-        cajaMensajes.innerHTML = `<div class="vacio"><h2>👋 ¡Hola!</h2><p>Sé el primero en escribir a ${contactoSeleccionado.nombre || contactoSeleccionado.correo}</p></div>`;
-        return;
-      }
+    async function construirMensaje(d, urlsNuevas) {
+      const propio = d.de === usuarioActual.uid;
+      const hora = new Date(d.hora).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'});
 
-      const orderedMensajes = mensajes.sort((a, b) => new Date(a.hora) - new Date(b.hora));
-      
-      orderedMensajes.forEach(d => {
-        const propio = d.de === usuarioActual.uid;
-        const fecha = new Date(d.hora);
-        const hora = fecha.toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'});
-        
-        const div = document.createElement('div');
-        div.className = `mensaje ${propio ? 'mensaje-propio' : 'mensaje-otro'}`;
-        
-        let contenido = `<div class="mensaje-texto">${d.texto}</div>`;
+      const div = document.createElement('div');
+      div.className = `mensaje ${propio ? 'mensaje-propio' : 'mensaje-otro'}`;
 
-        // Si hay archivo
-        if (d.archivo && d.archivo.eliminado) {
+      let contenido = `<div class="mensaje-texto">${escaparHTML(d.texto)}</div>`;
+      let hayImagen = false;
+
+      if (d.archivo) {
+        const nombre = escaparHTML(d.archivo.nombre);
+        const tipo = d.archivo.tipo || obtenerTipoDelNombre(d.archivo.nombre);
+        const blob = await obtenerArchivoLocal(d, tipo);
+
+        if (!blob) {
           contenido = `
             <div class="mensaje-media">
-              <div class="mensaje-archivo">🔒 Archivo eliminado de la nube</div>
+              <div class="mensaje-archivo">⚠️ Archivo no disponible: ${nombre}</div>
             </div>
-            ${contenido}
-          `;
-        } else if (d.archivo) {
-          const tipo = d.archivo.tipo || obtenerTipoDelNombre(d.archivo.nombre);
-          const url = d.archivo.url || d.archivo.data; // Soportar ambos (URL nueva o base64 vieja)
-          
+            ${contenido}`;
+        } else {
+          const urlAMostrar = URL.createObjectURL(blob);
+          urlsNuevas.push(urlAMostrar);
+
           if (tipo.startsWith('image/')) {
+            hayImagen = true;
             contenido = `
               <div class="mensaje-media">
-                <img src="${url}" class="mensaje-imagen" alt="${d.archivo.nombre}" style="max-width: 250px; max-height: 300px; border-radius: 8px;">
+                <img src="${urlAMostrar}" class="mensaje-imagen" alt="${nombre}" style="max-width: 250px; max-height: 300px; border-radius: 8px;">
               </div>
-              ${contenido}
-            `;
+              ${contenido}`;
           } else if (tipo.startsWith('video/')) {
             contenido = `
               <div class="mensaje-media">
-                <video controls class="mensaje-video" style="max-width: 250px;">
-                  <source src="${url}" type="video/mp4">
-                  Tu navegador no soporta video
-                </video>
+                <video controls class="mensaje-video" style="max-width: 250px;" src="${urlAMostrar}"></video>
               </div>
-              ${contenido}
-            `;
+              ${contenido}`;
           } else if (tipo.startsWith('audio/')) {
             contenido = `
               <div class="mensaje-media">
-                <audio controls class="mensaje-audio" style="width: 100%;">
-                  <source src="${url}" type="${tipo}">
-                  Tu navegador no soporta audio
-                </audio>
+                <audio controls class="mensaje-audio" style="width: 100%;" src="${urlAMostrar}"></audio>
               </div>
-              ${contenido}
-            `;
+              ${contenido}`;
           } else {
             contenido = `
               <div class="mensaje-media">
-                <div class="mensaje-archivo">📁 ${d.archivo.nombre} (${d.archivo.tamaño})</div>
+                <a href="${urlAMostrar}" download="${nombre}" class="mensaje-archivo">
+                  📁 ${nombre} (${escaparHTML(d.archivo.tamaño)})
+                </a>
               </div>
-              ${contenido}
-            `;
+              ${contenido}`;
           }
         }
+      }
 
-        const tieneUrlNube = d.archivo && !d.archivo.eliminado && d.archivo.url && d.archivo.url.startsWith(SERVIDOR);
-        if (tieneUrlNube) {
-          contenido += `<button class="btn-descargar-archivo">⬇️ Descargar (se borra de la nube)</button>`;
+      div.innerHTML = contenido + `<div class="mensaje-hora">${hora}</div>`;
+
+      if (hayImagen) {
+        const img = div.querySelector('.mensaje-imagen');
+        if (img) {
+          img.addEventListener('click', () => {
+            document.getElementById('modal-imagen-contenido').src = img.src;
+            modal.classList.add('activo');
+          });
         }
+      }
+      return div;
+    }
 
-        div.innerHTML = contenido + `<div class="mensaje-hora">${hora}</div>`;
+    async function renderizarMensajes(mensajes) {
+      const token = ++renderToken;
 
-        if (tieneUrlNube) {
-          const btnDesc = div.querySelector('.btn-descargar-archivo');
-          const chatIdActual = idChat(usuarioActual.uid, contactoSeleccionado.uid);
-          btnDesc.addEventListener('click', () =>
-            descargarYBorrar(btnDesc, d.archivo.url, d.archivo.nombre, chatIdActual, d.id));
-        }
+      if (mensajes.length === 0) {
+        cajaMensajes.innerHTML = `<div class="vacio"><h2>👋 ¡Hola!</h2><p>Sé el primero en escribir a ${escaparHTML(contactoSeleccionado.nombre || contactoSeleccionado.correo)}</p></div>`;
+        return;
+      }
 
-        // Click en imágenes para ver grande
-        if (d.archivo && (d.archivo.tipo?.startsWith('image/') || obtenerTipoDelNombre(d.archivo.nombre).startsWith('image/'))) {
-          const img = div.querySelector('.mensaje-imagen');
-          if (img) {
-            img.addEventListener('click', () => {
-              document.getElementById('modal-imagen-contenido').src = img.src;
-              modal.classList.add('activo');
-            });
-          }
-        }
+      const ordenados = [...mensajes].sort((a, b) => new Date(a.hora) - new Date(b.hora));
+      const urlsNuevas = [];
+      const divs = await Promise.all(ordenados.map(d => construirMensaje(d, urlsNuevas)));
 
-        cajaMensajes.appendChild(div);
-      });
+      // Si llegó un render más nuevo mientras cargaba, descartar este
+      if (token !== renderToken) {
+        urlsNuevas.forEach(u => URL.revokeObjectURL(u));
+        return;
+      }
 
+      urlsBlobActivas.forEach(u => URL.revokeObjectURL(u));
+      urlsBlobActivas = urlsNuevas;
+
+      cajaMensajes.replaceChildren(...divs);
       cajaMensajes.scrollTop = cajaMensajes.scrollHeight;
     }
 
@@ -1178,6 +1190,14 @@
             url: urlArchivo,
             tipo: archivoSeleccionado.file.type || obtenerTipoDelNombre(archivoSeleccionado.nombre)
           };
+
+          // Guardar copia local para que el emisor no tenga que re-descargarlo
+          try {
+            const dbLocal = await iniciarDB();
+            await guardarBlobLocal(dbLocal, mensaje.hora + "_" + archivoSeleccionado.nombre, archivoSeleccionado.file);
+          } catch (e) {
+            console.error('No se pudo guardar copia local:', e);
+          }
         } catch (e) {
           console.error('❌ Error al subir archivo:', e);
           mostrarMsg('msg-error', '❌ Error al subir archivo: ' + e.message, 'error');
