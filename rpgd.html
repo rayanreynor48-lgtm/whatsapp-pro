@@ -1,0 +1,1169 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>WhatsApp Pro - Chat Avanzado</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; font-family: 'Segoe UI', Roboto, Arial, sans-serif; }
+    body { background: #e5ddd5; display: flex; height: 100vh; overflow: hidden; }
+
+    /* PANEL IZQUIERDO */
+    .panel-izquierdo { width: 420px; background: #fff; border-right: 1px solid #ddd; display: flex; flex-direction: column; }
+    
+    /* Cabecera de perfil */
+    .cabecera-perfil { background: #f0f2f5; padding: 12px 16px; display: flex; align-items: center; gap: 12px; border-bottom: 1px solid #eee; }
+    .avatar { width: 45px; height: 45px; border-radius: 50%; background: #25d366; display: flex; align-items: center; justify-content: center; color: white; font-size: 18px; overflow: hidden; flex-shrink: 0; }
+    .avatar img { width: 100%; height: 100%; object-fit: cover; }
+    .info-usuario { flex: 1; min-width: 0; }
+    .info-usuario h3 { font-size: 14px; color: #111b21; font-weight: 600; }
+    .info-usuario p { font-size: 12px; color: #666; }
+    .btn { padding: 8px 14px; border: none; border-radius: 6px; cursor: pointer; font-size: 13px; font-weight: 500; transition: opacity 0.2s; }
+    .btn:hover { opacity: 0.9; }
+    .btn-verde { background: #25d366; color: white; }
+    .btn-rojo { background: #f15c5c; color: white; }
+    .btn-azul { background: #00a884; color: white; }
+
+    /* Mensajes del sistema */
+    .mensaje-sistema { padding: 10px 12px; margin: 8px 0; border-radius: 6px; font-size: 13px; }
+    .exito { background: #e6f9e6; color: #006600; border: 1px solid #b3e6b3; }
+    .error { background: #ffe6e6; color: #990000; border: 1px solid #ffb3b3; }
+    .info { background: #e6f2ff; color: #004080; border: 1px solid #b3d1ff; }
+
+    /* Pestañas */
+    .pestanas { display: flex; background: #f0f2f5; border-bottom: 1px solid #ddd; padding: 0 8px; }
+    .pestaña { flex: 1; padding: 12px 16px; cursor: pointer; text-align: center; font-weight: 500; color: #666; border: none; background: none; font-size: 13px; transition: all 0.2s; }
+    .pestaña.activa { color: #25d366; border-bottom: 3px solid #25d366; }
+    .pestaña:hover { color: #111b21; }
+
+    /* Búsqueda */
+    .buscador { padding: 8px 12px; background: #fff; border-bottom: 1px solid #eee; }
+    .buscador input { width: 100%; padding: 9px 14px; border: none; border-radius: 18px; background: #f0f2f5; font-size: 13px; outline: none; }
+
+    /* Secciones */
+    .seccion-form { padding: 14px; border-bottom: 1px solid #eee; max-height: 400px; overflow-y: auto; }
+    .seccion-form h4 { margin-bottom: 10px; color: #111b21; font-size: 14px; }
+    input { width: 100%; padding: 10px 12px; margin: 6px 0; border: 1px solid #ddd; border-radius: 6px; font-size: 14px; outline: none; }
+    input:focus { border-color: #25d366; box-shadow: 0 0 3px rgba(37, 211, 102, 0.3); }
+    .archivo-foto { display: none; }
+    .etiqueta-foto { display: inline-block; padding: 8px 12px; background: #f0f2f5; border-radius: 6px; cursor: pointer; font-size: 13px; margin-top: 6px; }
+    
+    .avatar-previa {
+      width: 70px; height: 70px; border-radius: 50%; background: #25d366;
+      display: flex; align-items: center; justify-content: center; color: white; font-size: 24px;
+      margin: 10px 0; overflow: hidden; flex-shrink: 0;
+    }
+    .avatar-previa img { width: 100%; height: 100%; object-fit: cover; }
+
+    /* Listas */
+    .lista-contactos { flex: 1; overflow-y: auto; }
+    .lista-chats { flex: 1; overflow-y: auto; }
+    
+    .contacto, .chat-item { padding: 12px 16px; display: flex; align-items: center; gap: 12px; border-bottom: 1px solid #f0f0f0; cursor: pointer; transition: background 0.2s; }
+    .contacto:hover, .chat-item:hover, .contacto.activo, .chat-item.activo { background: #f0f2f5; }
+    
+    .item-avatar { width: 42px; height: 42px; border-radius: 50%; background: #25d366; color: white; display: flex; align-items: center; justify-content: center; font-size: 16px; overflow: hidden; flex-shrink: 0; }
+    .item-avatar img { width: 100%; height: 100%; object-fit: cover; }
+    
+    .item-datos { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 4px; }
+    .item-nombre { font-weight: 500; font-size: 14px; color: #111b21; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .item-info { font-size: 12px; color: #666; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .item-hora { font-size: 12px; color: #999; flex-shrink: 0; }
+    
+    .sin-resultados { padding: 20px; text-align: center; color: #888; font-size: 14px; }
+
+    /* PANEL DERECHO */
+    .panel-derecho { flex: 1; display: flex; flex-direction: column; background: #e5ddd5; }
+    
+    .cabecera-chat { background: #f0f2f5; padding: 10px 16px; display: flex; align-items: center; gap: 12px; border-bottom: 1px solid #ddd; justify-content: space-between; }
+    .chat-header-info { display: flex; align-items: center; gap: 12px; }
+    .chat-avatar { width: 40px; height: 40px; border-radius: 50%; background: #25d366; color: white; display: flex; align-items: center; justify-content: center; overflow: hidden; flex-shrink: 0; }
+    .chat-avatar img { width: 100%; height: 100%; object-fit: cover; }
+    .chat-info h3 { font-size: 15px; color: #111b21; }
+    .chat-info p { font-size: 12px; color: #666; }
+    .btn-descargar-chat { padding: 6px 12px; font-size: 12px; background: #25d366; color: white; border: none; border-radius: 4px; cursor: pointer; }
+    
+    .caja-mensajes { flex: 1; padding: 20px 80px; overflow-y: auto; background-image: url("https://user-images.githubusercontent.com/15075759/28719144-860c2cb8-73db-11e7-93a0-8d6d4c1e8b35.png"); display: flex; flex-direction: column; gap: 8px; }
+    
+    .mensaje { margin-bottom: 8px; padding: 8px 12px; border-radius: 8px; max-width: 60%; box-shadow: 0 1px 2px rgba(0,0,0,0.08); display: flex; flex-direction: column; }
+    .mensaje-propio { background: #d9fdd3; align-self: flex-end; border-radius: 8px 0 8px 8px; }
+    .mensaje-otro { background: #fff; align-self: flex-start; border-radius: 0 8px 8px 8px; }
+    .mensaje-texto { font-size: 14px; line-height: 1.4; word-wrap: break-word; white-space: pre-wrap; }
+    .mensaje-hora { font-size: 10px; color: #667781; margin-top: 4px; text-align: right; }
+
+    /* Media en mensajes */
+    .mensaje-media { margin-top: 8px; }
+    .mensaje-imagen { max-width: 100%; max-height: 300px; border-radius: 8px; cursor: pointer; }
+    .mensaje-video { max-width: 100%; max-height: 300px; border-radius: 8px; }
+    .mensaje-audio { width: 100%; }
+    .mensaje-archivo { background: rgba(0,0,0,0.05); padding: 10px; border-radius: 4px; text-decoration: none; color: #25d366; display: block; text-align: center; margin-top: 8px; }
+
+    .enviar-mensaje { display: flex; padding: 12px 16px; background: #f0f2f5; gap: 10px; align-items: flex-end; }
+    .input-area { flex: 1; display: flex; flex-direction: column; gap: 8px; }
+    .enviar-mensaje input[type="text"] { border-radius: 18px; border: none; padding: 10px 16px; background: #fff; font-size: 14px; outline: none; margin: 0; }
+    .botones-envio { display: flex; gap: 8px; }
+    .btn-enviar { width: 40px; height: 40px; border-radius: 50%; border: none; background: #25d366; color: white; font-size: 18px; cursor: pointer; flex-shrink: 0; transition: background 0.2s; }
+    .btn-enviar:hover { background: #20ba58; }
+    .btn-archivo { width: 40px; height: 40px; border-radius: 50%; border: none; background: #25d366; color: white; font-size: 18px; cursor: pointer; flex-shrink: 0; transition: background 0.2s; }
+    .btn-archivo:hover { background: #20ba58; }
+    .input-archivo { display: none; }
+
+    /* Vista previa archivo */
+    .vista-previa-archivo { padding: 8px; background: #f0f2f5; border-radius: 6px; margin-bottom: 8px; display: flex; align-items: center; justify-content: space-between; }
+    .vista-previa-info { flex: 1; min-width: 0; }
+    .vista-previa-nombre { font-size: 12px; color: #111b21; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .vista-previa-tamaño { font-size: 10px; color: #666; }
+    .vista-previa-cancelar { padding: 4px 8px; background: #f15c5c; color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 12px; }
+
+    /* Modal para ver imagen grande */
+    .modal { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.7); z-index: 1000; }
+    .modal.activo { display: flex; align-items: center; justify-content: center; }
+    .modal-contenido { max-width: 90%; max-height: 90%; }
+    .modal-contenido img { max-width: 100%; max-height: 100%; }
+    .modal-cerrar { position: absolute; top: 20px; right: 30px; font-size: 30px; color: white; cursor: pointer; }
+
+    /* Estados */
+    .oculto { display: none !important; }
+    .vacio { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; color: #666; text-align: center; padding: 40px; }
+
+    /* Scrollbar personalizada */
+    ::-webkit-scrollbar { width: 6px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb { background: #ccc; border-radius: 3px; }
+    ::-webkit-scrollbar-thumb:hover { background: #999; }
+
+    /* Responsive */
+    @media (max-width: 768px) {
+      .panel-izquierdo { width: 100%; }
+      .panel-derecho { display: none; }
+      .caja-mensajes { padding: 20px 20px; }
+      .mensaje { max-width: 90%; }
+    }
+  </style>
+</head>
+<body>
+
+  <div class="panel-izquierdo">
+    <!-- CABECERA DE PERFIL -->
+    <div id="cabecera-perfil" class="cabecera-perfil oculto">
+      <div class="avatar">
+        <span id="inicial-nombre"></span>
+        <img id="foto-perfil-mostrar" class="oculto" alt="">
+      </div>
+      <div class="info-usuario">
+        <h3 id="mostrar-nombre-usuario"></h3>
+        <p id="correo-usuario"></p>
+      </div>
+      <button id="btn-cerrar-sesion" class="btn btn-rojo">Salir</button>
+    </div>
+
+    <!-- SECCIÓN DE AUTENTICACIÓN -->
+    <div id="seccion-auth" class="seccion-form">
+      <h3 style="margin-bottom: 12px; text-align: center;">Bienvenido 👋</h3>
+      <input type="email" id="correo" placeholder="Correo electrónico">
+      <input type="password" id="contrasena" placeholder="Contraseña (mín. 6 caracteres)">
+      <button id="btn-ingresar" class="btn btn-verde" style="width: 100%; margin-top: 8px;">Ingresar</button>
+      <p style="margin: 12px 0; font-size: 13px; text-align: center;">¿No tienes cuenta?</p>
+      <button id="btn-registrar" class="btn btn-azul" style="width: 100%;">Crear cuenta</button>
+      <div id="msg-auth"></div>
+    </div>
+
+    <!-- SECCIÓN DE PERFIL -->
+    <div id="seccion-perfil" class="seccion-form oculto">
+      <h4>✏️ Configura tu perfil</h4>
+      <div class="avatar-previa" id="avatar-previa">
+        <span id="previa-inicial">?</span>
+        <img id="previa-foto" class="oculto" alt="Vista previa">
+      </div>
+      <input type="text" id="nombre-personalizado" placeholder="Tu nombre para mostrar">
+      <label class="etiqueta-foto">
+        📷 Elegir foto de perfil
+        <input type="file" id="foto-perfil" accept="image/*" class="archivo-foto">
+      </label>
+      <button id="btn-guardar-perfil" class="btn btn-verde" style="width: 100%; margin-top: 8px;">Guardar perfil</button>
+      <div id="msg-perfil"></div>
+    </div>
+
+    <!-- SECCIÓN DE AGREGAR CONTACTO -->
+    <div id="seccion-agregar" class="seccion-form oculto">
+      <h4>➕ Agregar contacto</h4>
+      <input type="text" id="dato-contacto" placeholder="Correo o nombre del contacto">
+      <button id="btn-agregar-contacto" class="btn btn-verde" style="width: 100%;">Buscar y agregar</button>
+      <div id="msg-contacto"></div>
+    </div>
+
+    <!-- BÚSQUEDA -->
+    <div id="seccion-busqueda" class="buscador oculto">
+      <input type="text" id="buscar-contacto" placeholder="🔍 Buscar por nombre o correo...">
+    </div>
+
+    <!-- PESTAÑAS -->
+    <div id="pestanas" class="pestanas oculto">
+      <button class="pestaña activa" data-pestaña="contactos">👥 Contactos</button>
+      <button class="pestaña" data-pestaña="chats">💬 Chats</button>
+    </div>
+
+    <!-- LISTAS -->
+    <div id="lista-contactos" class="lista-contactos oculto"></div>
+    <div id="lista-chats" class="lista-chats oculto"></div>
+  </div>
+
+  <!-- PANEL DERECHO -->
+  <div class="panel-derecho">
+    <div id="cabecera-chat" class="cabecera-chat oculto">
+      <div class="chat-header-info">
+        <div class="chat-avatar">
+          <span id="chat-inicial"></span>
+          <img id="chat-foto" class="oculto" alt="">
+        </div>
+        <div class="chat-info">
+          <h3 id="chat-nombre">—</h3>
+          <p id="chat-estado">En línea</p>
+        </div>
+      </div>
+      <button id="btn-descargar-chat" class="btn-descargar-chat">⬇️ Descargar Chat</button>
+    </div>
+    <div id="caja-mensajes" class="caja-mensajes">
+      <div class="vacio"><h2>💬 Selecciona un contacto</h2><p>Inicia sesión para empezar</p></div>
+    </div>
+    <div id="enviar-mensaje" class="enviar-mensaje oculto">
+      <div class="input-area">
+        <div id="vista-previa-archivo" class="vista-previa-archivo oculto">
+          <div class="vista-previa-info">
+            <div class="vista-previa-nombre" id="vista-previa-nombre"></div>
+            <div class="vista-previa-tamaño" id="vista-previa-tamaño"></div>
+          </div>
+          <button class="vista-previa-cancelar" id="btn-cancelar-archivo">✕</button>
+        </div>
+        <div class="botones-envio">
+          <input type="text" id="texto-mensaje" placeholder="Escribe un mensaje... 😊">
+          <button id="btn-archivo" class="btn-archivo" title="Enviar archivo">📎</button>
+          <input type="file" id="input-archivo" class="input-archivo" accept=".mp4,.mp3,.jpg,.jpeg,.png,.webp,.gif,.pdf,.doc,.docx,.txt,.html,.htm,.zip,.rar">
+          <button id="btn-enviar" class="btn-enviar">➤</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal para ver imágenes -->
+  <div id="modal-imagen" class="modal">
+    <span class="modal-cerrar">&times;</span>
+    <img class="modal-contenido" id="modal-imagen-contenido" alt="">
+  </div>
+
+  <script type="module">
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/12.19.0/firebase-app.js";
+    import { getAuth, createUserWithEmailAndPassword, signInWithEmailAndPassword, signOut, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/12.19.0/firebase-auth.js";
+    import { getDatabase, ref, set, get, push, onValue, query, orderByChild } from "https://www.gstatic.com/firebasejs/12.19.0/firebase-database.js";
+    import { getStorage, ref as storageRef, uploadBytes, getDownloadURL } from "https://www.gstatic.com/firebasejs/12.19.0/firebase-storage.js";
+
+    const firebaseConfig = {
+      apiKey: "AIzaSyBcuomzuOwk81sFQ-WYe7TSRPOMj44ScIk",
+      authDomain: "com-example-chatbasico-562ab.firebaseapp.com",
+      databaseURL: "https://com-example-chatbasico-562ab-default-rtdb.firebaseio.com",
+      projectId: "com-example-chatbasico-562ab",
+      storageBucket: "com-example-chatbasico-562ab.appspot.com",
+      messagingSenderId: "926175029862",
+      appId: "1:926175029862:web:9c1ba3c78b7a6c7a5d5e5c"
+    };
+
+    const app = initializeApp(firebaseConfig);
+    const auth = getAuth(app);
+    const db = getDatabase(app);
+    const storage = getStorage(app);
+
+    // VARIABLES GLOBALES
+    let usuarioActual = null;
+    let datosUsuario = {};
+    let fotoPerfilActual = '';
+    let contactoSeleccionado = null;
+    let todosMisContactos = {};
+    let todosChatsRecientes = {};
+    let mensajesListener = null;
+    let pestañaActual = 'contactos';
+    let archivoSeleccionado = null;
+
+    // ELEMENTOS DEL DOM
+    const cabeceraChat = document.getElementById('cabecera-chat');
+    const cajaMensajes = document.getElementById('caja-mensajes');
+    const enviarMensajeDiv = document.getElementById('enviar-mensaje');
+    const listaContactos = document.getElementById('lista-contactos');
+    const listaChats = document.getElementById('lista-chats');
+    const buscador = document.getElementById('buscar-contacto');
+    const pestanas = document.getElementById('pestanas');
+    const inputArchivo = document.getElementById('input-archivo');
+    const vistaPrevia = document.getElementById('vista-previa-archivo');
+    const modal = document.getElementById('modal-imagen');
+
+    // ===== FUNCIONES UTILITARIAS =====
+    function idChat(u1, u2) { return u1 < u2 ? `${u1}_${u2}` : `${u2}_${u1}`; }
+
+    function mostrarMsg(id, msg, tipo) {
+      const el = document.getElementById(id);
+      if (!el) return;
+      el.innerHTML = `<div class="mensaje-sistema ${tipo}">${msg}</div>`;
+      setTimeout(() => { el.innerHTML = ''; }, 5000);
+    }
+
+    // Guardar mensajes en localStorage
+    function guardarMensajeLocal(chatId, mensaje) {
+      const key = `chat_${chatId}`;
+      let mensajes = JSON.parse(localStorage.getItem(key) || '[]');
+      mensajes.push(mensaje);
+      localStorage.setItem(key, JSON.stringify(mensajes));
+    }
+
+    function obtenerMensajesLocales(chatId) {
+      const key = `chat_${chatId}`;
+      return JSON.parse(localStorage.getItem(key) || '[]');
+    }
+
+    // Descargar chat como JSON
+    function descargarChat() {
+      if (!contactoSeleccionado) return;
+      
+      const chatId = idChat(usuarioActual.uid, contactoSeleccionado.uid);
+      const mensajes = obtenerMensajesLocales(chatId);
+      
+      const datos = {
+        contacto: contactoSeleccionado.nombre || contactoSeleccionado.correo,
+        correo: contactoSeleccionado.correo,
+        fecha: new Date().toISOString(),
+        mensajes: mensajes
+      };
+
+      const json = JSON.stringify(datos, null, 2);
+      const blob = new Blob([json], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `chat_${contactoSeleccionado.nombre || contactoSeleccionado.correo}_${new Date().getTime()}.json`;
+      a.click();
+      URL.revokeObjectURL(url);
+    }
+
+    // Convertir archivo a base64
+    async function archivoABase64(file) {
+      return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(reader.result);
+        reader.onerror = reject;
+        reader.readAsDataURL(file);
+      });
+    }
+
+    // Detectar tipo de contenido
+    function obtenerTipoArchivo(dataUrl) {
+      if (dataUrl.includes('image/jpeg') || dataUrl.includes('image/jpg')) return 'imagen';
+      if (dataUrl.includes('image/png')) return 'imagen';
+      if (dataUrl.includes('image/webp')) return 'imagen';
+      if (dataUrl.includes('image/gif')) return 'imagen';
+      if (dataUrl.includes('video/mp4')) return 'video';
+      if (dataUrl.includes('audio/mpeg')) return 'audio';
+      if (dataUrl.includes('audio/mp3')) return 'audio';
+      return 'archivo';
+    }
+
+    // Obtener nombre y tamaño legible
+    function formatearTamaño(bytes) {
+      if (bytes === 0) return '0 Bytes';
+      const k = 1024;
+      const sizes = ['Bytes', 'KB', 'MB'];
+      const i = Math.floor(Math.log(bytes) / Math.log(k));
+      return Math.round(bytes / Math.pow(k, i) * 100) / 100 + ' ' + sizes[i];
+    }
+
+    // ===== AUTENTICACIÓN =====
+    onAuthStateChanged(auth, async (user) => {
+      if (user) {
+        usuarioActual = user;
+        console.log('✅ Sesión activa:', user.email);
+        
+        document.getElementById('seccion-auth').classList.add('oculto');
+        document.getElementById('seccion-perfil').classList.add('oculto');
+        document.getElementById('seccion-agregar').classList.remove('oculto');
+        document.getElementById('cabecera-perfil').classList.remove('oculto');
+        document.getElementById('seccion-busqueda').classList.remove('oculto');
+        document.getElementById('pestanas').classList.remove('oculto');
+        listaContactos.classList.remove('oculto');
+        listaChats.classList.remove('oculto');
+
+        const datosRef = ref(db, `usuarios/${user.uid}`);
+        const snap = await get(datosRef);
+        if (snap.exists()) {
+          datosUsuario = snap.val();
+          fotoPerfilActual = datosUsuario.fotoPerfil || '';
+          document.getElementById('mostrar-nombre-usuario').textContent = datosUsuario.nombre || user.email.split('@')[0];
+          document.getElementById('correo-usuario').textContent = user.email;
+          document.getElementById('inicial-nombre').textContent = (datosUsuario.nombre || user.email)[0].toUpperCase();
+          if (fotoPerfilActual) {
+            document.getElementById('foto-perfil-mostrar').src = fotoPerfilActual;
+            document.getElementById('foto-perfil-mostrar').classList.remove('oculto');
+            document.getElementById('inicial-nombre').classList.add('oculto');
+          }
+        }
+
+        cargarContactos();
+        cargarChatsRecientes();
+      } else {
+        usuarioActual = null;
+        document.getElementById('seccion-auth').classList.remove('oculto');
+        document.getElementById('seccion-perfil').classList.add('oculto');
+        document.getElementById('seccion-agregar').classList.add('oculto');
+        document.getElementById('cabecera-perfil').classList.add('oculto');
+        document.getElementById('seccion-busqueda').classList.add('oculto');
+        document.getElementById('pestanas').classList.add('oculto');
+        listaContactos.classList.add('oculto');
+        listaChats.classList.add('oculto');
+        cabeceraChat.classList.add('oculto');
+        enviarMensajeDiv.classList.add('oculto');
+        cajaMensajes.innerHTML = '<div class="vacio"><h2>💬 Selecciona un contacto</h2><p>Inicia sesión para empezar</p></div>';
+      }
+    });
+
+    // ===== REGISTRO E INICIO DE SESIÓN =====
+    document.getElementById('btn-registrar').addEventListener('click', async () => {
+      const correo = document.getElementById('correo').value.trim();
+      const contrasena = document.getElementById('contrasena').value.trim();
+
+      if (!correo || !contrasena) {
+        mostrarMsg('msg-auth', 'Completa todos los campos', 'error');
+        return;
+      }
+
+      if (contrasena.length < 6) {
+        mostrarMsg('msg-auth', 'La contraseña debe tener al menos 6 caracteres', 'error');
+        return;
+      }
+
+      try {
+        const userCred = await createUserWithEmailAndPassword(auth, correo, contrasena);
+        console.log('✅ Cuenta creada:', userCred.user.email);
+        
+        await set(ref(db, `usuarios/${userCred.user.uid}`), {
+          correo: userCred.user.email,
+          nombre: correo.split('@')[0],
+          fotoPerfil: '',
+          creado: new Date().toISOString()
+        });
+
+        document.getElementById('seccion-perfil').classList.remove('oculto');
+        mostrarMsg('msg-auth', '✅ Cuenta creada. Configura tu perfil', 'exito');
+      } catch (e) {
+        mostrarMsg('msg-auth', 'Error: ' + e.message, 'error');
+      }
+    });
+
+    document.getElementById('btn-ingresar').addEventListener('click', async () => {
+      const correo = document.getElementById('correo').value.trim();
+      const contrasena = document.getElementById('contrasena').value.trim();
+
+      if (!correo || !contrasena) {
+        mostrarMsg('msg-auth', 'Completa todos los campos', 'error');
+        return;
+      }
+
+      try {
+        const userCred = await signInWithEmailAndPassword(auth, correo, contrasena);
+        console.log('✅ Sesión iniciada:', userCred.user.email);
+        mostrarMsg('msg-auth', '✅ Bienvenido de vuelta', 'exito');
+      } catch (e) {
+        mostrarMsg('msg-auth', 'Error: ' + e.message, 'error');
+      }
+    });
+
+    document.getElementById('btn-cerrar-sesion').addEventListener('click', async () => {
+      await signOut(auth);
+      mostrarMsg('msg-auth', '✅ Sesión cerrada', 'exito');
+    });
+
+    // ===== PERFIL =====
+    document.getElementById('foto-perfil').addEventListener('change', (e) => {
+      const file = e.target.files[0];
+      if (file) {
+        const reader = new FileReader();
+        reader.onload = (event) => {
+          document.getElementById('previa-foto').src = event.target.result;
+          document.getElementById('previa-foto').classList.remove('oculto');
+          document.getElementById('previa-inicial').classList.add('oculto');
+        };
+        reader.readAsDataURL(file);
+      }
+    });
+
+    document.getElementById('btn-guardar-perfil').addEventListener('click', async () => {
+      if (!usuarioActual) return;
+
+      const nombre = document.getElementById('nombre-personalizado').value.trim() || usuarioActual.email.split('@')[0];
+      const fileInput = document.getElementById('foto-perfil');
+      
+      try {
+        let fotoPerfil = fotoPerfilActual;
+
+        if (fileInput.files.length > 0) {
+          const file = fileInput.files[0];
+          const storagePath = storageRef(storage, `fotos_perfil/${usuarioActual.uid}`);
+          await uploadBytes(storagePath, file);
+          fotoPerfil = await getDownloadURL(storagePath);
+        }
+
+        await set(ref(db, `usuarios/${usuarioActual.uid}`), {
+          correo: usuarioActual.email,
+          nombre,
+          fotoPerfil,
+          actualizado: new Date().toISOString()
+        }, { merge: true });
+
+        datosUsuario = { correo: usuarioActual.email, nombre, fotoPerfil };
+        fotoPerfilActual = fotoPerfil;
+
+        document.getElementById('mostrar-nombre-usuario').textContent = nombre;
+        document.getElementById('inicial-nombre').textContent = nombre[0].toUpperCase();
+        if (fotoPerfil) {
+          document.getElementById('foto-perfil-mostrar').src = fotoPerfil;
+          document.getElementById('foto-perfil-mostrar').classList.remove('oculto');
+          document.getElementById('inicial-nombre').classList.add('oculto');
+        }
+
+        document.getElementById('seccion-perfil').classList.add('oculto');
+        mostrarMsg('msg-perfil', '✅ Perfil actualizado', 'exito');
+      } catch (e) {
+        console.error('Error:', e);
+        mostrarMsg('msg-perfil', 'Error: ' + e.message, 'error');
+      }
+    });
+
+    // ===== AGREGAR CONTACTO (Búsqueda parcial por NOMBRE) =====
+    document.getElementById('btn-agregar-contacto').addEventListener('click', async () => {
+      const dato = document.getElementById('dato-contacto').value.trim().toLowerCase();
+      if (!dato) return mostrarMsg('msg-contacto', 'Escribe el correo o nombre del contacto', 'error');
+      if (!usuarioActual) return;
+      
+      const correoActual = usuarioActual.email.toLowerCase();
+      if (dato === correoActual) return mostrarMsg('msg-contacto', 'No puedes agregarte a ti mismo', 'error');
+
+      try {
+        console.log('🔍 Buscando:', dato);
+        const usuariosRef = ref(db, 'usuarios');
+        const todos = await get(usuariosRef);
+        
+        let encontrado = null;
+        const sugerencias = [];
+
+        if (todos.exists()) {
+          todos.forEach(c => {
+            const u = c.val();
+            const nombre = (u.nombre || '').toLowerCase();
+            const correo = (u.correo || '').toLowerCase();
+
+            if (c.key === usuarioActual.uid) return;
+
+            // Búsqueda exacta primero
+            if (nombre === dato || correo === dato) {
+              encontrado = { uid: c.key, ...u };
+              return;
+            }
+
+            // Búsqueda parcial
+            if (nombre.includes(dato) || correo.includes(dato)) {
+              sugerencias.push({ uid: c.key, ...u });
+            }
+          });
+        }
+
+        // Si no hay exacta, usar la primera sugerencia
+        if (!encontrado && sugerencias.length > 0) {
+          encontrado = sugerencias[0];
+        }
+
+        if (!encontrado) {
+          const lista = [];
+          if (todos.exists()) {
+            todos.forEach(c => {
+              const u = c.val();
+              if (c.key !== usuarioActual.uid) {
+                lista.push(`${u.nombre || 'Sin nombre'} — ${u.correo || 'Sin correo'}`);
+              }
+            });
+          }
+          return mostrarMsg('msg-contacto', 
+            `❌ No encontrado. Disponibles:<br>${lista.join('<br>') || 'Ninguno'}`, 
+            'error'
+          );
+        }
+
+        console.log('✅ Encontrado:', encontrado);
+
+        const yaExiste = await get(ref(db, `mis_contactos/${usuarioActual.uid}/${encontrado.uid}`));
+        if (yaExiste.exists()) {
+          return mostrarMsg('msg-contacto', 'ℹ️ Ya está en tus contactos', 'info');
+        }
+
+        await set(ref(db, `mis_contactos/${usuarioActual.uid}/${encontrado.uid}`), {
+          nombre: encontrado.nombre || encontrado.correo.split('@')[0],
+          correo: encontrado.correo,
+          fotoPerfil: encontrado.fotoPerfil || ''
+        });
+
+        await set(ref(db, `mis_contactos/${encontrado.uid}/${usuarioActual.uid}`), {
+          nombre: datosUsuario.nombre || usuarioActual.email.split('@')[0],
+          correo: usuarioActual.email,
+          fotoPerfil: fotoPerfilActual || ''
+        });
+
+        mostrarMsg('msg-contacto', '✅ Contacto agregado: ' + (encontrado.nombre || encontrado.correo), 'exito');
+        document.getElementById('dato-contacto').value = '';
+
+      } catch (e) {
+        console.error('❌ Error:', e);
+        mostrarMsg('msg-contacto', 'Error: ' + e.message, 'error');
+      }
+    });
+
+    // ===== BÚSQUEDA =====
+    buscador.addEventListener('input', (e) => {
+      if (pestañaActual === 'contactos') {
+        renderizarContactos(e.target.value.trim().toLowerCase());
+      }
+    });
+
+    // ===== CARGAR CONTACTOS =====
+    function cargarContactos() {
+      const refMis = ref(db, `mis_contactos/${usuarioActual.uid}`);
+      onValue(refMis, (snap) => {
+        todosMisContactos = {};
+        if (snap.exists()) {
+          snap.forEach(c => {
+            todosMisContactos[c.key] = { uid: c.key, ...c.val() };
+          });
+        }
+        if (pestañaActual === 'contactos') {
+          renderizarContactos('');
+        }
+      });
+    }
+
+    // ===== RENDERIZAR CONTACTOS =====
+    function renderizarContactos(filtro = '') {
+      listaContactos.innerHTML = '';
+      let items = Object.values(todosMisContactos);
+      
+      if (items.length === 0) {
+        listaContactos.innerHTML = `<p class="sin-resultados">No tienes contactos. Agrega uno arriba ⬆️</p>`;
+        return;
+      }
+      
+      if (filtro) {
+        items = items.filter(c => {
+          const nombre = (c.nombre || '').toLowerCase();
+          const correo = (c.correo || '').toLowerCase();
+          return nombre.includes(filtro) || correo.includes(filtro);
+        });
+      }
+      
+      if (items.length === 0) {
+        listaContactos.innerHTML = `<p class="sin-resultados">Sin resultados para "${filtro}"</p>`;
+        return;
+      }
+      
+      items.forEach(c => {
+        const div = document.createElement('div');
+        div.className = `contacto ${contactoSeleccionado?.uid === c.uid ? 'activo' : ''}`;
+        const inicial = (c.nombre || c.correo || '?')[0].toUpperCase();
+        div.innerHTML = `
+          <div class="item-avatar">${c.fotoPerfil ? `<img src="${c.fotoPerfil}" alt="">` : inicial}</div>
+          <div class="item-datos">
+            <div class="item-nombre">${c.nombre || c.correo}</div>
+            <div class="item-info">${c.correo}</div>
+          </div>
+        `;
+        div.addEventListener('click', () => seleccionarContacto(c));
+        listaContactos.appendChild(div);
+      });
+    }
+
+    // ===== CARGAR CHATS RECIENTES =====
+    function cargarChatsRecientes() {
+      const refChats = ref(db, `chats`);
+      onValue(refChats, (snap) => {
+        todosChatsRecientes = {};
+        if (snap.exists()) {
+          snap.forEach(chatNode => {
+            const chatId = chatNode.key;
+            const [uid1, uid2] = chatId.split('_');
+            
+            if (uid1 === usuarioActual.uid || uid2 === usuarioActual.uid) {
+              const otroUid = uid1 === usuarioActual.uid ? uid2 : uid1;
+              const contacto = todosMisContactos[otroUid];
+              
+              if (contacto) {
+                // Obtener mensajes de Firebase + localStorage
+                const mensajesLocales = obtenerMensajesLocales(chatId);
+                const mensajesFirebase = [];
+                
+                if (chatNode.val().mensajes) {
+                  Object.values(chatNode.val().mensajes).forEach(m => {
+                    mensajesFirebase.push(m);
+                  });
+                }
+
+                // Combinar (Firebase es la fuente de verdad)
+                const todosMensajes = [...mensajesLocales];
+                mensajesFirebase.forEach(msgFb => {
+                  const yaExiste = todosMensajes.some(ml => 
+                    ml.hora === msgFb.hora && ml.de === msgFb.de
+                  );
+                  if (!yaExiste) {
+                    todosMensajes.push(msgFb);
+                  }
+                });
+
+                if (todosMensajes.length > 0) {
+                  const ultimoMensaje = todosMensajes[todosMensajes.length - 1];
+                  todosChatsRecientes[otroUid] = {
+                    ...contacto,
+                    ultimoMensaje: ultimoMensaje.texto || '[Archivo]',
+                    ultimaHora: ultimoMensaje.hora,
+                    esPropio: ultimoMensaje.de === usuarioActual.uid
+                  };
+                }
+              }
+            }
+          });
+        }
+        if (pestañaActual === 'chats') {
+          renderizarChatsRecientes();
+        }
+      });
+    }
+
+    // ===== RENDERIZAR CHATS RECIENTES =====
+    function renderizarChatsRecientes() {
+      listaChats.innerHTML = '';
+      let items = Object.values(todosChatsRecientes).sort((a, b) => 
+        new Date(b.ultimaHora) - new Date(a.ultimaHora)
+      );
+      
+      if (items.length === 0) {
+        listaChats.innerHTML = `<p class="sin-resultados">No hay chats recientes. Comienza una conversación 💬</p>`;
+        return;
+      }
+      
+      items.forEach(c => {
+        const div = document.createElement('div');
+        div.className = `chat-item ${contactoSeleccionado?.uid === c.uid ? 'activo' : ''}`;
+        const inicial = (c.nombre || c.correo || '?')[0].toUpperCase();
+        const fecha = new Date(c.ultimaHora);
+        const ahora = new Date();
+        const mismodia = fecha.toDateString() === ahora.toDateString();
+        const hora = mismodia 
+          ? fecha.toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'})
+          : fecha.toLocaleDateString([], {month:'short', day:'numeric'});
+        const prefijo = c.esPropio ? 'Tú: ' : '';
+        const mensaje = (prefijo + c.ultimoMensaje).substring(0, 35) + (c.ultimoMensaje.length > 35 ? '...' : '');
+        
+        div.innerHTML = `
+          <div class="item-avatar">${c.fotoPerfil ? `<img src="${c.fotoPerfil}" alt="">` : inicial}</div>
+          <div class="item-datos">
+            <div class="item-nombre">${c.nombre || c.correo}</div>
+            <div class="item-info">${mensaje}</div>
+          </div>
+          <div class="item-hora">${hora}</div>
+        `;
+        div.addEventListener('click', () => seleccionarContacto(c));
+        listaChats.appendChild(div);
+      });
+    }
+
+    // ===== PESTAÑAS =====
+    document.querySelectorAll('.pestaña').forEach(pestaña => {
+      pestaña.addEventListener('click', () => {
+        document.querySelectorAll('.pestaña').forEach(p => p.classList.remove('activa'));
+        pestaña.classList.add('activa');
+        pestañaActual = pestaña.dataset.pestaña;
+
+        if (pestañaActual === 'contactos') {
+          buscador.classList.remove('oculto');
+          listaContactos.classList.remove('oculto');
+          listaChats.classList.add('oculto');
+          renderizarContactos('');
+        } else {
+          buscador.classList.add('oculto');
+          listaContactos.classList.add('oculto');
+          listaChats.classList.remove('oculto');
+          renderizarChatsRecientes();
+        }
+      });
+    });
+
+    // ===== MANEJO DE ARCHIVOS =====
+    document.getElementById('btn-archivo').addEventListener('click', () => {
+      inputArchivo.click();
+    });
+
+    inputArchivo.addEventListener('change', async (e) => {
+      const file = e.target.files[0];
+      if (!file) return;
+
+      archivoSeleccionado = {
+        file: file,
+        nombre: file.name,
+        tamaño: formatearTamaño(file.size),
+        data: null
+      };
+
+      document.getElementById('vista-previa-nombre').textContent = file.name;
+      document.getElementById('vista-previa-tamaño').textContent = archivoSeleccionado.tamaño;
+      vistaPrevia.classList.remove('oculto');
+
+      // Convertir a base64
+      archivoSeleccionado.data = await archivoABase64(file);
+      console.log('✅ Archivo listo:', file.name);
+    });
+
+    document.getElementById('btn-cancelar-archivo').addEventListener('click', () => {
+      archivoSeleccionado = null;
+      vistaPrevia.classList.add('oculto');
+      inputArchivo.value = '';
+    });
+
+    // ===== SELECCIONAR CONTACTO =====
+    function seleccionarContacto(contacto) {
+      contactoSeleccionado = contacto;
+      cabeceraChat.classList.remove('oculto');
+      document.getElementById('chat-nombre').textContent = contacto.nombre || contacto.correo;
+      const inicial = (contacto.nombre || contacto.correo || '?')[0].toUpperCase();
+      document.getElementById('chat-inicial').textContent = inicial;
+      document.getElementById('chat-inicial').classList.toggle('oculto', !!contacto.fotoPerfil);
+      document.getElementById('chat-foto').classList.toggle('oculto', !contacto.fotoPerfil);
+      if (contacto.fotoPerfil) document.getElementById('chat-foto').src = contacto.fotoPerfil;
+      document.getElementById('chat-estado').textContent = '✅ En línea';
+      enviarMensajeDiv.classList.remove('oculto');
+      
+      renderizarContactos('');
+      renderizarChatsRecientes();
+      escucharMensajes();
+    }
+
+    // ===== ESCUCHAR MENSAJES (Tiempo real + Local) =====
+    function escucharMensajes() {
+      if (!contactoSeleccionado) return;
+      if (mensajesListener) {
+        mensajesListener();
+      }
+      
+      const chatId = idChat(usuarioActual.uid, contactoSeleccionado.uid);
+      const refChat = ref(db, `chats/${chatId}/mensajes`);
+      
+      console.log('🔊 Escuchando chat:', chatId);
+      
+      // Escuchar cambios en Firebase EN TIEMPO REAL
+      mensajesListener = onValue(refChat, (snap) => {
+        console.log('📨 Nuevos datos de Firebase para', chatId);
+        
+        const mensajesFirebase = [];
+        
+        if (snap.exists()) {
+          snap.forEach(m => {
+            const mensaje = m.val();
+            mensajesFirebase.push({
+              id: m.key,
+              ...mensaje
+            });
+          });
+          console.log('✅ Mensajes en Firebase:', mensajesFirebase.length);
+        } else {
+          console.log('ℹ️ Sin mensajes en Firebase aún');
+        }
+
+        // Obtener también del localStorage
+        const mensajesLocales = obtenerMensajesLocales(chatId);
+        console.log('📱 Mensajes en localStorage:', mensajesLocales.length);
+        
+        // Combinar: Firebase es la fuente de verdad
+        const todosLosMensajes = [...mensajesFirebase];
+        
+        // Agregar del localStorage que no estén en Firebase
+        mensajesLocales.forEach(msgLocal => {
+          const yaExiste = todosLosMensajes.some(mf => 
+            mf.hora === msgLocal.hora && mf.de === msgLocal.de && mf.texto === msgLocal.texto
+          );
+          if (!yaExiste) {
+            todosLosMensajes.push(msgLocal);
+          }
+        });
+
+        // Ordenar por hora
+        todosLosMensajes.sort((a, b) => new Date(a.hora) - new Date(b.hora));
+        
+        // Actualizar localStorage
+        localStorage.setItem(`chat_${chatId}`, JSON.stringify(todosLosMensajes));
+        
+        // Renderizar
+        renderizarMensajes(todosLosMensajes);
+        console.log('✅ Total mensajes renderizados:', todosLosMensajes.length);
+        
+      }, (err) => {
+        console.error('❌ Error escuchando mensajes:', err);
+        if (err.code === 'PERMISSION_DENIED') {
+          mostrarMsg('msg-error', 'Error de permisos. Verifica las reglas de Firebase.', 'error');
+        }
+      });
+    }
+
+    // ===== NOTIFICACIONES =====
+    function notificarNuevoMensaje(contacto, texto) {
+      // Notificación del navegador
+      if ('Notification' in window && Notification.permission === 'granted') {
+        new Notification(`Mensaje de ${contacto.nombre || contacto.correo}`, {
+          body: texto.substring(0, 50),
+          icon: contacto.fotoPerfil || '✉️'
+        });
+      }
+
+      // Sonido (opcional)
+      reproducirSonido();
+    }
+
+    function reproducirSonido() {
+      const audioContext = new (window.AudioContext || window.webkitAudioContext)();
+      const oscilador = audioContext.createOscillator();
+      const ganancia = audioContext.createGain();
+      
+      oscilador.connect(ganancia);
+      ganancia.connect(audioContext.destination);
+      
+      oscilador.frequency.value = 800;
+      oscilador.type = 'sine';
+      
+      ganancia.gain.setValueAtTime(0.3, audioContext.currentTime);
+      ganancia.gain.exponentialRampToValueAtTime(0.01, audioContext.currentTime + 0.5);
+      
+      oscilador.start(audioContext.currentTime);
+      oscilador.stop(audioContext.currentTime + 0.5);
+    }
+
+    // Solicitar permiso para notificaciones
+    if ('Notification' in window && Notification.permission === 'default') {
+      Notification.requestPermission();
+    }
+
+    function renderizarMensajes(mensajes) {
+      cajaMensajes.innerHTML = '';
+      if (mensajes.length === 0) {
+        cajaMensajes.innerHTML = `<div class="vacio"><h2>👋 ¡Hola!</h2><p>Sé el primero en escribir a ${contactoSeleccionado.nombre || contactoSeleccionado.correo}</p></div>`;
+        return;
+      }
+
+      const orderedMensajes = mensajes.sort((a, b) => new Date(a.hora) - new Date(b.hora));
+      
+      orderedMensajes.forEach(d => {
+        const propio = d.de === usuarioActual.uid;
+        const fecha = new Date(d.hora);
+        const hora = fecha.toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'});
+        
+        const div = document.createElement('div');
+        div.className = `mensaje ${propio ? 'mensaje-propio' : 'mensaje-otro'}`;
+        
+        let contenido = `<div class="mensaje-texto">${d.texto}</div>`;
+
+        // Si hay archivo
+        if (d.archivo) {
+          const tipo = d.archivo.tipo || obtenerTipoDelNombre(d.archivo.nombre);
+          const url = d.archivo.url || d.archivo.data; // Soportar ambos (URL nueva o base64 vieja)
+          
+          if (tipo.startsWith('image/')) {
+            contenido = `
+              <div class="mensaje-media">
+                <img src="${url}" class="mensaje-imagen" alt="${d.archivo.nombre}" style="max-width: 250px; max-height: 300px; border-radius: 8px;">
+              </div>
+              ${contenido}
+            `;
+          } else if (tipo.startsWith('video/')) {
+            contenido = `
+              <div class="mensaje-media">
+                <video controls class="mensaje-video" style="max-width: 250px;">
+                  <source src="${url}" type="video/mp4">
+                  Tu navegador no soporta video
+                </video>
+              </div>
+              ${contenido}
+            `;
+          } else if (tipo.startsWith('audio/')) {
+            contenido = `
+              <div class="mensaje-media">
+                <audio controls class="mensaje-audio" style="width: 100%;">
+                  <source src="${url}" type="${tipo}">
+                  Tu navegador no soporta audio
+                </audio>
+              </div>
+              ${contenido}
+            `;
+          } else {
+            contenido = `
+              <div class="mensaje-media">
+                <a href="${url}" download="${d.archivo.nombre}" class="mensaje-archivo" target="_blank">
+                  📁 ${d.archivo.nombre} (${d.archivo.tamaño})
+                </a>
+              </div>
+              ${contenido}
+            `;
+          }
+        }
+
+        div.innerHTML = contenido + `<div class="mensaje-hora">${hora}</div>`;
+
+        // Click en imágenes para ver grande
+        if (d.archivo && (d.archivo.tipo?.startsWith('image/') || obtenerTipoDelNombre(d.archivo.nombre).startsWith('image/'))) {
+          const img = div.querySelector('.mensaje-imagen');
+          if (img) {
+            img.addEventListener('click', () => {
+              document.getElementById('modal-imagen-contenido').src = img.src;
+              modal.classList.add('activo');
+            });
+          }
+        }
+
+        cajaMensajes.appendChild(div);
+      });
+
+      cajaMensajes.scrollTop = cajaMensajes.scrollHeight;
+    }
+
+    // Detectar tipo por nombre de archivo
+    function obtenerTipoDelNombre(nombre) {
+      const ext = nombre.split('.').pop().toLowerCase();
+      const tipos = {
+        'jpg': 'image/jpeg', 'jpeg': 'image/jpeg', 'png': 'image/png', 'webp': 'image/webp', 'gif': 'image/gif',
+        'mp4': 'video/mp4', 'avi': 'video/avi', 'mov': 'video/quicktime',
+        'mp3': 'audio/mpeg', 'wav': 'audio/wav', 'm4a': 'audio/mp4',
+        'pdf': 'application/pdf', 'doc': 'application/msword', 'docx': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
+      };
+      return tipos[ext] || 'application/octet-stream';
+    }
+
+    // ===== ENVIAR MENSAJE =====
+    document.getElementById('btn-enviar').addEventListener('click', enviarMsg);
+    document.getElementById('texto-mensaje').addEventListener('keydown', e => e.key === 'Enter' && enviarMsg());
+
+    async function enviarMsg() {
+      if (!contactoSeleccionado) return;
+      const texto = document.getElementById('texto-mensaje').value.trim();
+      
+      if (!texto && !archivoSeleccionado) return;
+
+      const chatId = idChat(usuarioActual.uid, contactoSeleccionado.uid);
+      const mensaje = {
+        de: usuarioActual.uid,
+        para: contactoSeleccionado.uid,
+        texto: texto || '[Archivo]',
+        hora: new Date().toISOString()
+      };
+
+      // Si hay archivo, subirlo a Storage
+      if (archivoSeleccionado) {
+        try {
+          console.log('📤 Iniciando subida de archivo:', archivoSeleccionado.nombre);
+          console.log('📊 Tamaño:', archivoSeleccionado.tamaño);
+          console.log('📋 Tipo:', archivoSeleccionado.file.type);
+          
+          const timestamp = Date.now();
+          const nombreSeguro = archivoSeleccionado.nombre.replace(/[^a-zA-Z0-9.-]/g, '_');
+          const rutaStorage = `chats/${chatId}/${timestamp}_${nombreSeguro}`;
+          
+          console.log('📍 Ruta en Storage:', rutaStorage);
+          
+          const storagePath = storageRef(storage, rutaStorage);
+          
+          // Convertir base64 a blob CORRECTAMENTE
+          let blob;
+          if (archivoSeleccionado.data.startsWith('data:')) {
+            // Tiene el prefijo data:mime;base64
+            const base64Data = archivoSeleccionado.data.split(',')[1];
+            const binaryString = atob(base64Data);
+            const bytes = new Uint8Array(binaryString.length);
+            for (let i = 0; i < binaryString.length; i++) {
+              bytes[i] = binaryString.charCodeAt(i);
+            }
+            blob = new Blob([bytes], { type: archivoSeleccionado.file.type });
+          } else {
+            // Ya es blob o binary string
+            blob = archivoSeleccionado.file;
+          }
+          
+          console.log('💾 Blob creado, tamaño:', blob.size, 'bytes');
+          
+          // Subir a Storage con metadata
+          const metadata = {
+            contentType: archivoSeleccionado.file.type,
+            customMetadata: {
+              'uploaded_by': usuarioActual.uid,
+              'original_name': archivoSeleccionado.nombre
+            }
+          };
+          
+          const taskSnapshot = await uploadBytes(storagePath, blob, metadata);
+          console.log('✅ Archivo subido exitosamente');
+          
+          const urlArchivo = await getDownloadURL(taskSnapshot.ref);
+          console.log('✅ URL generada:', urlArchivo.substring(0, 50) + '...');
+          
+          mensaje.archivo = {
+            nombre: archivoSeleccionado.nombre,
+            tamaño: archivoSeleccionado.tamaño,
+            url: urlArchivo,
+            tipo: archivoSeleccionado.file.type
+          };
+          
+          console.log('✅ Objeto archivo creado:', mensaje.archivo.nombre);
+        } catch (e) {
+          console.error('❌ ERROR COMPLETO:', e);
+          console.error('Código:', e.code);
+          console.error('Mensaje:', e.message);
+          mostrarMsg('msg-error', '❌ Error al subir archivo: ' + e.message, 'error');
+          return;
+        }
+      }
+
+      // GUARDAR MENSAJE EN FIREBASE
+      try {
+        console.log('💬 Guardando mensaje en Firebase...');
+        const result = await push(ref(db, `chats/${chatId}/mensajes`), mensaje);
+        console.log('✅ Mensaje guardado en Firebase:', result.key);
+      } catch (e) {
+        console.error('❌ Error al guardar en Firebase:', e);
+        mostrarMsg('msg-error', '❌ Error al enviar: ' + e.message, 'error');
+        return;
+      }
+
+      // Guardar en localStorage también
+      guardarMensajeLocal(chatId, mensaje);
+
+      // Limpiar UI
+      document.getElementById('texto-mensaje').value = '';
+      archivoSeleccionado = null;
+      vistaPrevia.classList.add('oculto');
+      inputArchivo.value = '';
+
+      // Actualizar lista de chats recientes
+      cargarChatsRecientes();
+      
+      console.log('✅ Mensaje enviado exitosamente');
+    }
+
+    // ===== DESCARGAR CHAT =====
+    document.getElementById('btn-descargar-chat').addEventListener('click', descargarChat);
+
+    // ===== MODAL =====
+    document.querySelector('.modal-cerrar').addEventListener('click', () => {
+      modal.classList.remove('activo');
+    });
+
+    modal.addEventListener('click', (e) => {
+      if (e.target === modal) {
+        modal.classList.remove('activo');
+      }
+    });
+  </script>
+</body>
+</html>
