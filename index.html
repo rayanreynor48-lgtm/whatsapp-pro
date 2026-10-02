@@ -98,6 +98,8 @@
     .mensaje-audio { width: 100%; }
     .mensaje-archivo { background: rgba(0,0,0,0.05); padding: 10px; border-radius: 4px; text-decoration: none; color: #25d366; display: block; text-align: center; margin-top: 8px; }
 
+    .btn-descargar-archivo { margin-top: 6px; padding: 7px 10px; border: none; border-radius: 6px; background: #25d366; color: white; font-size: 12px; cursor: pointer; }
+    .btn-descargar-archivo:disabled { background: #8bd9ac; cursor: default; }
     .enviar-mensaje { display: flex; padding: 12px 16px; background: #f0f2f5; gap: 10px; align-items: flex-end; }
     .input-area { flex: 1; display: flex; flex-direction: column; gap: 8px; }
     .enviar-mensaje input[type="text"] { border-radius: 18px; border: none; padding: 10px 16px; background: #fff; font-size: 14px; outline: none; margin: 0; }
@@ -254,7 +256,7 @@
   <script type="module">
     import { initializeApp } from "https://www.gstatic.com/firebasejs/12.19.0/firebase-app.js";
     import { getAuth, createUserWithEmailAndPassword, signInWithEmailAndPassword, signOut, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/12.19.0/firebase-auth.js";
-    import { getDatabase, ref, set, get, push, onValue, query, orderByChild } from "https://www.gstatic.com/firebasejs/12.19.0/firebase-database.js";
+    import { getDatabase, ref, set, get, push, onValue, query, orderByChild, update } from "https://www.gstatic.com/firebasejs/12.19.0/firebase-database.js";
     import { getStorage, ref as storageRef, uploadBytes, getDownloadURL } from "https://www.gstatic.com/firebasejs/12.19.0/firebase-storage.js";
 
     const firebaseConfig = {
@@ -947,6 +949,67 @@
       Notification.requestPermission();
     }
 
+    // ===== DESCARGAR CON PROGRESO Y BORRAR DE LA NUBE =====
+    async function descargarYBorrar(btn, urlArchivo, nombreArchivo, chatId, msgId) {
+      const textoOriginal = btn.textContent;
+      btn.disabled = true;
+      try {
+        const respuesta = await fetch(urlArchivo);
+        if (!respuesta.ok) throw new Error('Servidor respondió ' + respuesta.status);
+
+        const totalBytes = +respuesta.headers.get('Content-Length') || 0;
+        const lector = respuesta.body.getReader();
+        const chunks = [];
+        let bytesDescargados = 0;
+
+        while (true) {
+          const { done, value } = await lector.read();
+          if (done) break;
+          chunks.push(value);
+          bytesDescargados += value.length;
+          btn.textContent = totalBytes
+            ? `Descargando: ${Math.min(100, Math.round((bytesDescargados / totalBytes) * 100))}%`
+            : `Descargando: ${formatearTamaño(bytesDescargados)}`;
+        }
+
+        // Disparar descarga en el dispositivo
+        const blob = new Blob(chunks);
+        const link = document.createElement('a');
+        link.href = URL.createObjectURL(blob);
+        link.download = nombreArchivo;
+        document.body.appendChild(link);
+        link.click();
+        link.remove();
+        setTimeout(() => URL.revokeObjectURL(link.href), 10000);
+
+        // Ordenar a Python borrar el archivo del servidor
+        btn.textContent = 'Borrando de la nube...';
+        const nombreServidor = decodeURIComponent(urlArchivo.split('/').pop());
+        const del = await fetch(`${SERVIDOR}/delete-file`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ filename: nombreServidor })
+        });
+        if (!del.ok && del.status !== 404) throw new Error('No se pudo borrar (' + del.status + ')');
+
+        btn.textContent = '🔒 Archivo eliminado de la nube.';
+
+        // Marcar el mensaje como eliminado para todos
+        if (msgId) {
+          try {
+            await update(ref(db, `chats/${chatId}/mensajes/${msgId}/archivo`), { eliminado: true });
+          } catch (e) {
+            console.error('No se pudo marcar como eliminado:', e);
+          }
+        }
+      } catch (e) {
+        console.error('❌ Error en descarga/borrado:', e);
+        btn.disabled = false;
+        btn.textContent = '❌ Error, reintentar';
+        setTimeout(() => { btn.textContent = textoOriginal; }, 3000);
+      }
+    }
+
     function renderizarMensajes(mensajes) {
       cajaMensajes.innerHTML = '';
       if (mensajes.length === 0) {
@@ -967,7 +1030,14 @@
         let contenido = `<div class="mensaje-texto">${d.texto}</div>`;
 
         // Si hay archivo
-        if (d.archivo) {
+        if (d.archivo && d.archivo.eliminado) {
+          contenido = `
+            <div class="mensaje-media">
+              <div class="mensaje-archivo">🔒 Archivo eliminado de la nube</div>
+            </div>
+            ${contenido}
+          `;
+        } else if (d.archivo) {
           const tipo = d.archivo.tipo || obtenerTipoDelNombre(d.archivo.nombre);
           const url = d.archivo.url || d.archivo.data; // Soportar ambos (URL nueva o base64 vieja)
           
@@ -1001,16 +1071,26 @@
           } else {
             contenido = `
               <div class="mensaje-media">
-                <a href="${url}" download="${d.archivo.nombre}" class="mensaje-archivo" target="_blank">
-                  📁 ${d.archivo.nombre} (${d.archivo.tamaño})
-                </a>
+                <div class="mensaje-archivo">📁 ${d.archivo.nombre} (${d.archivo.tamaño})</div>
               </div>
               ${contenido}
             `;
           }
         }
 
+        const tieneUrlNube = d.archivo && !d.archivo.eliminado && d.archivo.url && d.archivo.url.startsWith(SERVIDOR);
+        if (tieneUrlNube) {
+          contenido += `<button class="btn-descargar-archivo">⬇️ Descargar (se borra de la nube)</button>`;
+        }
+
         div.innerHTML = contenido + `<div class="mensaje-hora">${hora}</div>`;
+
+        if (tieneUrlNube) {
+          const btnDesc = div.querySelector('.btn-descargar-archivo');
+          const chatIdActual = idChat(usuarioActual.uid, contactoSeleccionado.uid);
+          btnDesc.addEventListener('click', () =>
+            descargarYBorrar(btnDesc, d.archivo.url, d.archivo.nombre, chatIdActual, d.id));
+        }
 
         // Click en imágenes para ver grande
         if (d.archivo && (d.archivo.tipo?.startsWith('image/') || obtenerTipoDelNombre(d.archivo.nombre).startsWith('image/'))) {
