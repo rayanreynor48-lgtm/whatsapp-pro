@@ -218,7 +218,7 @@
         </div>
         <div class="chat-info">
           <h3 id="chat-nombre">—</h3>
-          <p id="chat-estado">En línea</p>
+          <p id="chat-estado">—</p>
         </div>
       </div>
       <button id="btn-descargar-chat" class="btn-descargar-chat">⬇️ Descargar Chat</button>
@@ -254,7 +254,7 @@
   <script type="module">
     import { initializeApp } from "https://www.gstatic.com/firebasejs/12.19.0/firebase-app.js";
     import { getAuth, createUserWithEmailAndPassword, signInWithEmailAndPassword, signOut, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/12.19.0/firebase-auth.js";
-    import { getDatabase, ref, set, get, push, onValue, query, orderByChild } from "https://www.gstatic.com/firebasejs/12.19.0/firebase-database.js";
+    import { getDatabase, ref, set, get, push, onValue, query, orderByChild, onDisconnect, serverTimestamp, update } from "https://www.gstatic.com/firebasejs/12.19.0/firebase-database.js";
     import { getStorage, ref as storageRef, uploadBytes, getDownloadURL } from "https://www.gstatic.com/firebasejs/12.19.0/firebase-storage.js";
 
     const firebaseConfig = {
@@ -283,6 +283,8 @@
     let mensajesListener = null;
     let pestañaActual = 'contactos';
     let archivoSeleccionado = null;
+    let quitarPresencia = null;
+    let quitarEstadoContacto = null;
 
     // ELEMENTOS DEL DOM
     const cabeceraChat = document.getElementById('cabecera-chat');
@@ -443,10 +445,25 @@
           }
         }
 
+        // Monitorear mi propia conexión
+        if (quitarPresencia) quitarPresencia();
+        const connectedRef = ref(db, ".info/connected");
+        const miEstadoRef = ref(db, `usuarios/${user.uid}/estado`);
+        quitarPresencia = onValue(connectedRef, (snapConn) => {
+          if (snapConn.val() === true) {
+            // Al desconectarme (cerrar pestaña o perder internet) Firebase me marca "offline"
+            onDisconnect(miEstadoRef).set("offline");
+            // Al conectarme me pongo "online"
+            set(miEstadoRef, "online");
+          }
+        });
+
         cargarContactos();
         cargarChatsRecientes();
       } else {
         usuarioActual = null;
+        if (quitarPresencia) { quitarPresencia(); quitarPresencia = null; }
+        if (quitarEstadoContacto) { quitarEstadoContacto(); quitarEstadoContacto = null; }
         document.getElementById('seccion-auth').classList.remove('oculto');
         document.getElementById('seccion-perfil').classList.add('oculto');
         document.getElementById('seccion-agregar').classList.add('oculto');
@@ -480,7 +497,7 @@
         const userCred = await createUserWithEmailAndPassword(auth, correo, contrasena);
         console.log('✅ Cuenta creada:', userCred.user.email);
         
-        await set(ref(db, `usuarios/${userCred.user.uid}`), {
+        await update(ref(db, `usuarios/${userCred.user.uid}`), {
           correo: userCred.user.email,
           nombre: correo.split('@')[0],
           fotoPerfil: '',
@@ -513,6 +530,10 @@
     });
 
     document.getElementById('btn-cerrar-sesion').addEventListener('click', async () => {
+      if (quitarPresencia) { quitarPresencia(); quitarPresencia = null; }
+      try {
+        if (usuarioActual) await set(ref(db, `usuarios/${usuarioActual.uid}/estado`), 'offline');
+      } catch (e) { console.error('No se pudo marcar offline:', e); }
       await signOut(auth);
       mostrarMsg('msg-auth', '✅ Sesión cerrada', 'exito');
     });
@@ -547,12 +568,12 @@
           fotoPerfil = await getDownloadURL(storagePath);
         }
 
-        await set(ref(db, `usuarios/${usuarioActual.uid}`), {
+        await update(ref(db, `usuarios/${usuarioActual.uid}`), {
           correo: usuarioActual.email,
           nombre,
           fotoPerfil,
           actualizado: new Date().toISOString()
-        }, { merge: true });
+        });
 
         datosUsuario = { correo: usuarioActual.email, nombre, fotoPerfil };
         fotoPerfilActual = fotoPerfil;
@@ -875,7 +896,21 @@
       document.getElementById('chat-inicial').classList.toggle('oculto', !!contacto.fotoPerfil);
       document.getElementById('chat-foto').classList.toggle('oculto', !contacto.fotoPerfil);
       if (contacto.fotoPerfil) document.getElementById('chat-foto').src = contacto.fotoPerfil;
-      document.getElementById('chat-estado').textContent = '✅ En línea';
+      // Escuchar el estado de conexión del contacto seleccionado
+      if (quitarEstadoContacto) quitarEstadoContacto();
+      const elEstado = document.getElementById('chat-estado');
+      elEstado.textContent = '…';
+      elEstado.style.color = '#666';
+      quitarEstadoContacto = onValue(ref(db, `usuarios/${contacto.uid}/estado`), (snapEstado) => {
+        const estado = snapEstado.val() || "offline";
+        if (estado === "online") {
+          elEstado.textContent = "✅ En línea";
+          elEstado.style.color = "#25d366";
+        } else {
+          elEstado.textContent = "💤 Desconectado";
+          elEstado.style.color = "#666";
+        }
+      });
       enviarMensajeDiv.classList.remove('oculto');
       
       renderizarContactos('');
