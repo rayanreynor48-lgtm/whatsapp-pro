@@ -98,6 +98,20 @@
     .mensaje-audio { width: 100%; }
     .mensaje-archivo { background: rgba(0,0,0,0.05); padding: 10px; border-radius: 4px; text-decoration: none; color: #25d366; display: block; text-align: center; margin-top: 8px; }
 
+    /* Círculo de progreso */
+    .contenedor-media { position: relative; display: inline-block; }
+    .overlay-carga {
+      position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+      background: rgba(0, 0, 0, 0.5); border-radius: 8px;
+      display: flex; align-items: center; justify-content: center; z-index: 10;
+    }
+    .circulo-progreso {
+      width: 40px; height: 40px; border: 4px solid rgba(255, 255, 255, 0.3);
+      border-radius: 50%; border-top-color: white; border-right-color: white;
+      animation: girar 1s linear infinite;
+    }
+    @keyframes girar { to { transform: rotate(360deg); } }
+
     .enviar-mensaje { display: flex; padding: 12px 16px; background: #f0f2f5; gap: 10px; align-items: flex-end; }
     .input-area { flex: 1; display: flex; flex-direction: column; gap: 8px; }
     .enviar-mensaje input[type="text"] { border-radius: 18px; border: none; padding: 10px 16px; background: #fff; font-size: 14px; outline: none; margin: 0; }
@@ -218,7 +232,7 @@
         </div>
         <div class="chat-info">
           <h3 id="chat-nombre">—</h3>
-          <p id="chat-estado">—</p>
+          <p id="chat-estado">En línea</p>
         </div>
       </div>
       <button id="btn-descargar-chat" class="btn-descargar-chat">⬇️ Descargar Chat</button>
@@ -252,10 +266,10 @@
   </div>
 
   <script type="module">
-    import { initializeApp } from "https://www.gstatic.com/firebasejs/12.19.0/firebase-app.js";
-    import { getAuth, createUserWithEmailAndPassword, signInWithEmailAndPassword, signOut, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/12.19.0/firebase-auth.js";
-    import { getDatabase, ref, set, get, push, onValue, query, orderByChild, onDisconnect, serverTimestamp, update } from "https://www.gstatic.com/firebasejs/12.19.0/firebase-database.js";
-    import { getStorage, ref as storageRef, uploadBytes, getDownloadURL } from "https://www.gstatic.com/firebasejs/12.19.0/firebase-storage.js";
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js";
+    import { getAuth, createUserWithEmailAndPassword, signInWithEmailAndPassword, signOut, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-auth.js";
+    import { getDatabase, ref, set, get, push, onValue, query, orderByChild } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-database.js";
+    import { getStorage, ref as storageRef, uploadBytes, getDownloadURL } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-storage.js";
 
     const firebaseConfig = {
       apiKey: "AIzaSyBcuomzuOwk81sFQ-WYe7TSRPOMj44ScIk",
@@ -271,7 +285,6 @@
     const auth = getAuth(app);
     const db = getDatabase(app);
     const storage = getStorage(app);
-    const SERVIDOR = "https://ThornEldritch.pythonanywhere.com";
 
     // VARIABLES GLOBALES
     let usuarioActual = null;
@@ -283,8 +296,6 @@
     let mensajesListener = null;
     let pestañaActual = 'contactos';
     let archivoSeleccionado = null;
-    let quitarPresencia = null;
-    let quitarEstadoContacto = null;
 
     // ELEMENTOS DEL DOM
     const cabeceraChat = document.getElementById('cabecera-chat');
@@ -297,45 +308,6 @@
     const inputArchivo = document.getElementById('input-archivo');
     const vistaPrevia = document.getElementById('vista-previa-archivo');
     const modal = document.getElementById('modal-imagen');
-
-    // ===== INDEXEDDB: caché local de archivos (Blobs) =====
-    const DB_NAME = "WhatsAppPro_DB";
-    const STORE_NAME = "media_local";
-    let dbLocalPromise = null;
-
-    function iniciarDB() {
-      if (!dbLocalPromise) {
-        dbLocalPromise = new Promise((resolve, reject) => {
-          const req = indexedDB.open(DB_NAME, 1);
-          req.onupgradeneeded = (e) => e.target.result.createObjectStore(STORE_NAME);
-          req.onsuccess = (e) => resolve(e.target.result);
-          req.onerror = () => reject(req.error);
-        });
-      }
-      return dbLocalPromise;
-    }
-
-    function guardarBlobLocal(db, id, blob) {
-      return new Promise((resolve, reject) => {
-        const tx = db.transaction(STORE_NAME, "readwrite");
-        tx.objectStore(STORE_NAME).put(blob, id);
-        tx.oncomplete = () => resolve();
-        tx.onerror = () => reject(tx.error);
-      });
-    }
-
-    function obtenerBlobLocal(db, id) {
-      return new Promise((resolve, reject) => {
-        const tx = db.transaction(STORE_NAME, "readonly");
-        const req = tx.objectStore(STORE_NAME).get(id);
-        req.onsuccess = () => resolve(req.result);
-        req.onerror = () => reject(req.error);
-      });
-    }
-
-    function escaparHTML(t) {
-      return String(t ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-    }
 
     // ===== FUNCIONES UTILITARIAS =====
     function idChat(u1, u2) { return u1 < u2 ? `${u1}_${u2}` : `${u2}_${u1}`; }
@@ -445,25 +417,10 @@
           }
         }
 
-        // Monitorear mi propia conexión
-        if (quitarPresencia) quitarPresencia();
-        const connectedRef = ref(db, ".info/connected");
-        const miEstadoRef = ref(db, `usuarios/${user.uid}/estado`);
-        quitarPresencia = onValue(connectedRef, (snapConn) => {
-          if (snapConn.val() === true) {
-            // Al desconectarme (cerrar pestaña o perder internet) Firebase me marca "offline"
-            onDisconnect(miEstadoRef).set("offline");
-            // Al conectarme me pongo "online"
-            set(miEstadoRef, "online");
-          }
-        });
-
         cargarContactos();
         cargarChatsRecientes();
       } else {
         usuarioActual = null;
-        if (quitarPresencia) { quitarPresencia(); quitarPresencia = null; }
-        if (quitarEstadoContacto) { quitarEstadoContacto(); quitarEstadoContacto = null; }
         document.getElementById('seccion-auth').classList.remove('oculto');
         document.getElementById('seccion-perfil').classList.add('oculto');
         document.getElementById('seccion-agregar').classList.add('oculto');
@@ -497,7 +454,7 @@
         const userCred = await createUserWithEmailAndPassword(auth, correo, contrasena);
         console.log('✅ Cuenta creada:', userCred.user.email);
         
-        await update(ref(db, `usuarios/${userCred.user.uid}`), {
+        await set(ref(db, `usuarios/${userCred.user.uid}`), {
           correo: userCred.user.email,
           nombre: correo.split('@')[0],
           fotoPerfil: '',
@@ -530,10 +487,6 @@
     });
 
     document.getElementById('btn-cerrar-sesion').addEventListener('click', async () => {
-      if (quitarPresencia) { quitarPresencia(); quitarPresencia = null; }
-      try {
-        if (usuarioActual) await set(ref(db, `usuarios/${usuarioActual.uid}/estado`), 'offline');
-      } catch (e) { console.error('No se pudo marcar offline:', e); }
       await signOut(auth);
       mostrarMsg('msg-auth', '✅ Sesión cerrada', 'exito');
     });
@@ -568,12 +521,12 @@
           fotoPerfil = await getDownloadURL(storagePath);
         }
 
-        await update(ref(db, `usuarios/${usuarioActual.uid}`), {
+        await set(ref(db, `usuarios/${usuarioActual.uid}`), {
           correo: usuarioActual.email,
           nombre,
           fotoPerfil,
           actualizado: new Date().toISOString()
-        });
+        }, { merge: true });
 
         datosUsuario = { correo: usuarioActual.email, nombre, fotoPerfil };
         fotoPerfilActual = fotoPerfil;
@@ -877,6 +830,8 @@
       document.getElementById('vista-previa-tamaño').textContent = archivoSeleccionado.tamaño;
       vistaPrevia.classList.remove('oculto');
 
+      // Convertir a base64
+      archivoSeleccionado.data = await archivoABase64(file);
       console.log('✅ Archivo listo:', file.name);
     });
 
@@ -896,21 +851,7 @@
       document.getElementById('chat-inicial').classList.toggle('oculto', !!contacto.fotoPerfil);
       document.getElementById('chat-foto').classList.toggle('oculto', !contacto.fotoPerfil);
       if (contacto.fotoPerfil) document.getElementById('chat-foto').src = contacto.fotoPerfil;
-      // Escuchar el estado de conexión del contacto seleccionado
-      if (quitarEstadoContacto) quitarEstadoContacto();
-      const elEstado = document.getElementById('chat-estado');
-      elEstado.textContent = '…';
-      elEstado.style.color = '#666';
-      quitarEstadoContacto = onValue(ref(db, `usuarios/${contacto.uid}/estado`), (snapEstado) => {
-        const estado = snapEstado.val() || "offline";
-        if (estado === "online") {
-          elEstado.textContent = "✅ En línea";
-          elEstado.style.color = "#25d366";
-        } else {
-          elEstado.textContent = "💤 Desconectado";
-          elEstado.style.color = "#666";
-        }
-      });
+      document.getElementById('chat-estado').textContent = '✅ En línea';
       enviarMensajeDiv.classList.remove('oculto');
       
       renderizarContactos('');
@@ -976,6 +917,14 @@
         renderizarMensajes(todosLosMensajes);
         console.log('✅ Total mensajes renderizados:', todosLosMensajes.length);
         
+        // Limpiar blob URLs que ya no se usan (cuando pasa de "subiendo" a "completado")
+        todosLosMensajes.forEach(msg => {
+          if (msg.archivo && msg.archivo.localUrl && msg.archivo.estado === 'completado') {
+            console.log('🧹 Liberando blob URL temporal');
+            URL.revokeObjectURL(msg.archivo.localUrl);
+          }
+        });
+        
       }, (err) => {
         console.error('❌ Error escuchando mensajes:', err);
         if (err.code === 'PERMISSION_DENIED') {
@@ -1021,138 +970,100 @@
       Notification.requestPermission();
     }
 
-    // ===== RENDERIZAR MENSAJES (archivos desde IndexedDB; nube solo la 1ª vez) =====
-    let renderToken = 0;
-    let urlsBlobActivas = [];
-
-    async function obtenerArchivoLocal(d, tipo) {
-      const idUnico = d.hora + "_" + d.archivo.nombre;
-      let db = null;
-      let blob = null;
-
-      try { db = await iniciarDB(); } catch (e) { console.error('IndexedDB no disponible:', e); }
-
-      // 1. Buscar en la memoria del navegador
-      if (db) {
-        try { blob = await obtenerBlobLocal(db, idUnico); } catch (e) { console.error(e); }
+    function renderizarMensajes(mensajes) {
+      cajaMensajes.innerHTML = '';
+      if (mensajes.length === 0) {
+        cajaMensajes.innerHTML = `<div class="vacio"><h2>👋 ¡Hola!</h2><p>Sé el primero en escribir a ${contactoSeleccionado.nombre || contactoSeleccionado.correo}</p></div>`;
+        return;
       }
 
-      // 2. Si no está, descargar de la nube una sola vez y guardar
-      if (!blob) {
-        const urlNube = d.archivo.url || d.archivo.data;
-        if (urlNube) {
-          try {
-            console.log('📥 No está local. Descargando de la nube por única vez:', d.archivo.nombre);
-            const respuesta = await fetch(urlNube);
-            if (!respuesta.ok) throw new Error('HTTP ' + respuesta.status);
-            blob = await respuesta.blob();
-            if (tipo && (!blob.type || blob.type === 'application/octet-stream')) {
-              blob = new Blob([blob], { type: tipo });
-            }
-            if (db) {
-              try { await guardarBlobLocal(db, idUnico, blob); } catch (e) { console.error('No se pudo guardar local:', e); }
-            }
-          } catch (e) {
-            console.error('Error al descargar de la nube:', e);
-            blob = null;
+      const orderedMensajes = mensajes.sort((a, b) => new Date(a.hora) - new Date(b.hora));
+      
+      orderedMensajes.forEach(d => {
+        const propio = d.de === usuarioActual.uid;
+        const fecha = new Date(d.hora);
+        const hora = fecha.toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'});
+        
+        const div = document.createElement('div');
+        div.className = `mensaje ${propio ? 'mensaje-propio' : 'mensaje-otro'}`;
+        
+        let contenido = `<div class="mensaje-texto">${d.texto}</div>`;
+
+        // Si hay archivo
+        if (d.archivo) {
+          const tipo = d.archivo.tipo || obtenerTipoDelNombre(d.archivo.nombre);
+          // Usar URL local temporal si está subiendo, sino URL final
+          const url = d.archivo.localUrl || d.archivo.url || d.archivo.data;
+          
+          // Crear overlay de carga si está subiendo
+          let overlay = '';
+          if (d.archivo.estado === 'subiendo') {
+            overlay = '<div class="overlay-carga"><div class="circulo-progreso"></div></div>';
           }
-        }
-      }
-      return blob;
-    }
-
-    async function construirMensaje(d, urlsNuevas) {
-      const propio = d.de === usuarioActual.uid;
-      const hora = new Date(d.hora).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'});
-
-      const div = document.createElement('div');
-      div.className = `mensaje ${propio ? 'mensaje-propio' : 'mensaje-otro'}`;
-
-      let contenido = `<div class="mensaje-texto">${escaparHTML(d.texto)}</div>`;
-      let hayImagen = false;
-
-      if (d.archivo) {
-        const nombre = escaparHTML(d.archivo.nombre);
-        const tipo = d.archivo.tipo || obtenerTipoDelNombre(d.archivo.nombre);
-        const blob = await obtenerArchivoLocal(d, tipo);
-
-        if (!blob) {
-          contenido = `
-            <div class="mensaje-media">
-              <div class="mensaje-archivo">⚠️ Archivo no disponible: ${nombre}</div>
-            </div>
-            ${contenido}`;
-        } else {
-          const urlAMostrar = URL.createObjectURL(blob);
-          urlsNuevas.push(urlAMostrar);
-
+          
           if (tipo.startsWith('image/')) {
-            hayImagen = true;
             contenido = `
-              <div class="mensaje-media">
-                <img src="${urlAMostrar}" class="mensaje-imagen" alt="${nombre}" style="max-width: 250px; max-height: 300px; border-radius: 8px;">
+              <div class="mensaje-media contenedor-media">
+                <img src="${url}" class="mensaje-imagen" alt="${d.archivo.nombre}" style="max-width: 250px; max-height: 300px; border-radius: 8px;">
+                ${overlay}
               </div>
-              ${contenido}`;
+              ${contenido}
+            `;
           } else if (tipo.startsWith('video/')) {
             contenido = `
-              <div class="mensaje-media">
-                <video controls class="mensaje-video" style="max-width: 250px;" src="${urlAMostrar}"></video>
+              <div class="mensaje-media contenedor-media">
+                <video controls class="mensaje-video" style="max-width: 250px;">
+                  <source src="${url}" type="video/mp4">
+                  Tu navegador no soporta video
+                </video>
+                ${overlay}
               </div>
-              ${contenido}`;
+              ${contenido}
+            `;
           } else if (tipo.startsWith('audio/')) {
             contenido = `
               <div class="mensaje-media">
-                <audio controls class="mensaje-audio" style="width: 100%;" src="${urlAMostrar}"></audio>
+                <audio controls class="mensaje-audio" style="width: 100%;">
+                  <source src="${url}" type="${tipo}">
+                  Tu navegador no soporta audio
+                </audio>
+                ${overlay}
               </div>
-              ${contenido}`;
+              ${contenido}
+            `;
           } else {
+            // Archivos: mostrar overlay si está fallido, sino normal
+            let estadoBadge = '';
+            if (d.archivo.estado === 'fallido') {
+              estadoBadge = ' ❌ Error';
+            }
             contenido = `
               <div class="mensaje-media">
-                <a href="${urlAMostrar}" download="${nombre}" class="mensaje-archivo">
-                  📁 ${nombre} (${escaparHTML(d.archivo.tamaño)})
+                <a href="${url || '#'}" download="${d.archivo.nombre}" class="mensaje-archivo" target="_blank">
+                  📁 ${d.archivo.nombre} (${d.archivo.tamaño})${estadoBadge}
                 </a>
               </div>
-              ${contenido}`;
+              ${contenido}
+            `;
           }
         }
-      }
 
-      div.innerHTML = contenido + `<div class="mensaje-hora">${hora}</div>`;
+        div.innerHTML = contenido + `<div class="mensaje-hora">${hora}</div>`;
 
-      if (hayImagen) {
-        const img = div.querySelector('.mensaje-imagen');
-        if (img) {
-          img.addEventListener('click', () => {
-            document.getElementById('modal-imagen-contenido').src = img.src;
-            modal.classList.add('activo');
-          });
+        // Click en imágenes para ver grande
+        if (d.archivo && (d.archivo.tipo?.startsWith('image/') || obtenerTipoDelNombre(d.archivo.nombre).startsWith('image/'))) {
+          const img = div.querySelector('.mensaje-imagen');
+          if (img) {
+            img.addEventListener('click', () => {
+              document.getElementById('modal-imagen-contenido').src = img.src;
+              modal.classList.add('activo');
+            });
+          }
         }
-      }
-      return div;
-    }
 
-    async function renderizarMensajes(mensajes) {
-      const token = ++renderToken;
+        cajaMensajes.appendChild(div);
+      });
 
-      if (mensajes.length === 0) {
-        cajaMensajes.innerHTML = `<div class="vacio"><h2>👋 ¡Hola!</h2><p>Sé el primero en escribir a ${escaparHTML(contactoSeleccionado.nombre || contactoSeleccionado.correo)}</p></div>`;
-        return;
-      }
-
-      const ordenados = [...mensajes].sort((a, b) => new Date(a.hora) - new Date(b.hora));
-      const urlsNuevas = [];
-      const divs = await Promise.all(ordenados.map(d => construirMensaje(d, urlsNuevas)));
-
-      // Si llegó un render más nuevo mientras cargaba, descartar este
-      if (token !== renderToken) {
-        urlsNuevas.forEach(u => URL.revokeObjectURL(u));
-        return;
-      }
-
-      urlsBlobActivas.forEach(u => URL.revokeObjectURL(u));
-      urlsBlobActivas = urlsNuevas;
-
-      cajaMensajes.replaceChildren(...divs);
       cajaMensajes.scrollTop = cajaMensajes.scrollHeight;
     }
 
@@ -1179,91 +1090,126 @@
       if (!texto && !archivoSeleccionado) return;
 
       const chatId = idChat(usuarioActual.uid, contactoSeleccionado.uid);
-      const mensaje = {
+      
+      // 1. CREAR REFERENCIA DE FIREBASE ANTES DE ENVIAR
+      const nuevoMensajeRef = push(ref(db, `chats/${chatId}/mensajes`));
+      
+      let mensaje = {
         de: usuarioActual.uid,
         para: contactoSeleccionado.uid,
         texto: texto || '[Archivo]',
         hora: new Date().toISOString()
       };
 
-      // Si hay archivo, subirlo a PythonAnywhere
+      let archivoParaSubir = null;
+      let localUrl = null;
+
+      // 2. SI HAY ARCHIVO: crear URL local temporal y generar estado "subiendo"
       if (archivoSeleccionado) {
-        try {
-          console.log('📤 Subiendo archivo:', archivoSeleccionado.nombre);
-
-          const formData = new FormData();
-          formData.append('file', archivoSeleccionado.file);
-          formData.append('chat_id', chatId);
-          formData.append('de', usuarioActual.uid);
-
-          const respuesta = await fetch("https://ThornEldritch.pythonanywhere.com/upload", {
-            method: "POST",
-            body: formData
-          });
-
-          if (!respuesta.ok) {
-            throw new Error('Servidor respondió ' + respuesta.status);
+        archivoParaSubir = { ...archivoSeleccionado }; // Copia para subir en background
+        
+        // Crear blob URL para vista previa instantánea
+        let blob;
+        if (archivoSeleccionado.data && archivoSeleccionado.data.startsWith('data:')) {
+          const base64Data = archivoSeleccionado.data.split(',')[1];
+          const binaryString = atob(base64Data);
+          const bytes = new Uint8Array(binaryString.length);
+          for (let i = 0; i < binaryString.length; i++) {
+            bytes[i] = binaryString.charCodeAt(i);
           }
-
-          const resultado = await respuesta.json();
-          console.log('✅ Respuesta del servidor:', resultado);
-
-          let urlArchivo = resultado.url || resultado.link || resultado.file_url || resultado.archivo_url;
-          if (!urlArchivo && resultado.filename) {
-            urlArchivo = `${SERVIDOR}/uploads/${resultado.filename}`;
-          }
-          if (!urlArchivo) {
-            throw new Error('El servidor no devolvió la URL del archivo');
-          }
-          if (urlArchivo.startsWith('/')) {
-            urlArchivo = SERVIDOR + urlArchivo;
-          }
-
-          mensaje.archivo = {
-            nombre: archivoSeleccionado.nombre,
-            tamaño: archivoSeleccionado.tamaño,
-            url: urlArchivo,
-            tipo: archivoSeleccionado.file.type || obtenerTipoDelNombre(archivoSeleccionado.nombre)
-          };
-
-          // Guardar copia local para que el emisor no tenga que re-descargarlo
-          try {
-            const dbLocal = await iniciarDB();
-            await guardarBlobLocal(dbLocal, mensaje.hora + "_" + archivoSeleccionado.nombre, archivoSeleccionado.file);
-          } catch (e) {
-            console.error('No se pudo guardar copia local:', e);
-          }
-        } catch (e) {
-          console.error('❌ Error al subir archivo:', e);
-          mostrarMsg('msg-error', '❌ Error al subir archivo: ' + e.message, 'error');
-          return;
+          blob = new Blob([bytes], { type: archivoSeleccionado.file.type });
+        } else {
+          blob = archivoSeleccionado.file;
         }
+        
+        localUrl = URL.createObjectURL(blob);
+        
+        mensaje.archivo = {
+          nombre: archivoSeleccionado.nombre,
+          tamaño: archivoSeleccionado.tamaño,
+          tipo: archivoSeleccionado.file.type,
+          localUrl: localUrl,  // URL temporal para vista previa INSTANTÁNEA
+          estado: "subiendo"    // Estado: subiendo
+        };
       }
 
-      // GUARDAR MENSAJE EN FIREBASE
+      // 3. GUARDAR EN FIREBASE INMEDIATAMENTE (aparece en el chat al instante)
       try {
-        console.log('💬 Guardando mensaje en Firebase...');
-        const result = await push(ref(db, `chats/${chatId}/mensajes`), mensaje);
-        console.log('✅ Mensaje guardado en Firebase:', result.key);
+        await set(nuevoMensajeRef, mensaje);
+        console.log('✅ Mensaje visible en Firebase (estado: subiendo)');
       } catch (e) {
-        console.error('❌ Error al guardar en Firebase:', e);
-        mostrarMsg('msg-error', '❌ Error al enviar: ' + e.message, 'error');
+        console.error('❌ Error al guardar mensaje:', e);
+        mostrarMsg('msg-error', 'Error al enviar', 'error');
         return;
       }
 
-      // Guardar en localStorage también
+      // 4. GUARDAR EN LOCALSTORAGE
       guardarMensajeLocal(chatId, mensaje);
 
-      // Limpiar UI
+      // 5. LIMPIAR UI AL INSTANTE (experiencia rápida)
       document.getElementById('texto-mensaje').value = '';
       archivoSeleccionado = null;
       vistaPrevia.classList.add('oculto');
       inputArchivo.value = '';
 
+      // 6. SUBIR ARCHIVO EN BACKGROUND (sin bloquear la UI)
+      if (archivoParaSubir) {
+        (async () => {
+          try {
+            console.log('📤 Subiendo archivo en background:', archivoParaSubir.nombre);
+            
+            const timestamp = Date.now();
+            const nombreSeguro = archivoParaSubir.nombre.replace(/[^a-zA-Z0-9.-]/g, '_');
+            const rutaStorage = `chats/${chatId}/${timestamp}_${nombreSeguro}`;
+            
+            const storagePath = storageRef(storage, rutaStorage);
+            
+            // Convertir base64 a blob
+            let blob;
+            if (archivoParaSubir.data && archivoParaSubir.data.startsWith('data:')) {
+              const base64Data = archivoParaSubir.data.split(',')[1];
+              const binaryString = atob(base64Data);
+              const bytes = new Uint8Array(binaryString.length);
+              for (let i = 0; i < binaryString.length; i++) {
+                bytes[i] = binaryString.charCodeAt(i);
+              }
+              blob = new Blob([bytes], { type: archivoParaSubir.file.type });
+            } else {
+              blob = archivoParaSubir.file;
+            }
+            
+            console.log('⏳ Subiendo blob de', blob.size, 'bytes...');
+            
+            const taskSnapshot = await uploadBytes(storagePath, blob);
+            const urlArchivo = await getDownloadURL(taskSnapshot.ref);
+            
+            console.log('✅ Archivo subido, actualizando Firebase...');
+            
+            // 7. ACTUALIZAR MENSAJE CON URL FINAL (estado: completado)
+            mensaje.archivo.url = urlArchivo;
+            mensaje.archivo.estado = "completado";
+            delete mensaje.archivo.localUrl; // Borrar URL temporal
+            
+            await set(nuevoMensajeRef, mensaje);
+            console.log('✅ Mensaje actualizado a completado');
+            
+            // Actualizar en localStorage
+            guardarMensajeLocal(chatId, mensaje);
+            
+          } catch (e) {
+            console.error('❌ Error al subir archivo:', e);
+            
+            // Marcar como fallido
+            mensaje.archivo.estado = "fallido";
+            await set(nuevoMensajeRef, mensaje);
+          }
+        })();
+      }
+
       // Actualizar lista de chats recientes
       cargarChatsRecientes();
       
-      console.log('✅ Mensaje enviado exitosamente');
+      console.log('✅ Mensaje enviado (UI optimista)');
     }
 
     // ===== DESCARGAR CHAT =====
