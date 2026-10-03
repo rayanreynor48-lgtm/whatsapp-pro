@@ -270,6 +270,7 @@
     let todosMisContactos = {};
     let todosChatsRecientes = {};
     let mensajesListener = null;
+    let estadoListener = null;
     let pestañaActual = 'contactos';
     let archivoSeleccionado = null;
 
@@ -370,6 +371,17 @@
             document.getElementById('inicial-nombre').classList.add('oculto');
           }
         }
+        
+        // 🟢 NUEVO: Actualizar estado a "En línea" cuando inicia sesión
+        try {
+          await set(ref(db, `usuarios/${user.uid}/estado`), {
+            online: true,
+            ultimaConexion: new Date().toISOString()
+          }, { merge: true });
+        } catch (e) {
+          console.error('Error al actualizar estado de línea:', e);
+        }
+
         cargarContactos();
         cargarChatsRecientes();
       } else {
@@ -387,6 +399,20 @@
       }
     });
 
+    // 🟢 NUEVO: Detectar cuando se cierra la sesión o la pestaña
+    window.addEventListener('beforeunload', async () => {
+      if (usuarioActual) {
+        try {
+          await set(ref(db, `usuarios/${usuarioActual.uid}/estado`), {
+            online: false,
+            ultimaConexion: new Date().toISOString()
+          }, { merge: true });
+        } catch (e) {
+          console.error('Error al actualizar estado de desconexión:', e);
+        }
+      }
+    });
+
     document.getElementById('btn-registrar').addEventListener('click', async () => {
       const correo = document.getElementById('correo').value.trim();
       const contrasena = document.getElementById('contrasena').value.trim();
@@ -399,17 +425,12 @@
         return;
       }
       try {
-        const userCred = await createUserWithEmailAndPassword(auth, correo, contrasena);
-        await set(ref(db, `usuarios/${userCred.user.uid}`), {
-          correo: userCred.user.email,
-          nombre: correo.split('@')[0],
-          fotoPerfil: '',
-          creado: new Date().toISOString()
-        });
+        await createUserWithEmailAndPassword(auth, correo, contrasena);
+        document.getElementById('seccion-auth').classList.add('oculto');
         document.getElementById('seccion-perfil').classList.remove('oculto');
         mostrarMsg('msg-auth', '✅ Cuenta creada. Configura tu perfil', 'exito');
       } catch (e) {
-        mostrarMsg('msg-auth', 'Error: ' + e.message, 'error');
+        mostrarMsg('msg-auth', 'Error: ' + (e.message || e), 'error');
       }
     });
 
@@ -423,30 +444,30 @@
       try {
         await signInWithEmailAndPassword(auth, correo, contrasena);
       } catch (e) {
-        mostrarMsg('msg-auth', 'Error: ' + e.message, 'error');
+        mostrarMsg('msg-auth', 'Error: ' + (e.message || e), 'error');
       }
     });
 
     document.getElementById('btn-cerrar-sesion').addEventListener('click', async () => {
-      await signOut(auth);
-    });
-
-    document.getElementById('foto-perfil').addEventListener('change', (e) => {
-      const file = e.target.files[0];
-      if (file) {
-        const reader = new FileReader();
-        reader.onload = (event) => {
-          document.getElementById('previa-foto').src = event.target.result;
-          document.getElementById('previa-foto').classList.remove('oculto');
-          document.getElementById('previa-inicial').classList.add('oculto');
-        };
-        reader.readAsDataURL(file);
+      try {
+        if (usuarioActual) {
+          await set(ref(db, `usuarios/${usuarioActual.uid}/estado`), {
+            online: false,
+            ultimaConexion: new Date().toISOString()
+          }, { merge: true });
+        }
+        await signOut(auth);
+      } catch (e) {
+        console.error('Error al cerrar sesión:', e);
       }
     });
 
     document.getElementById('btn-guardar-perfil').addEventListener('click', async () => {
-      if (!usuarioActual) return;
-      const nombre = document.getElementById('nombre-personalizado').value.trim() || usuarioActual.email.split('@')[0];
+      const nombre = document.getElementById('nombre-personalizado').value.trim();
+      if (!nombre) {
+        mostrarMsg('msg-perfil', 'Escribe tu nombre', 'error');
+        return;
+      }
       const fileInput = document.getElementById('foto-perfil');
       try {
         let fotoPerfil = fotoPerfilActual;
@@ -704,7 +725,16 @@
       document.getElementById('chat-inicial').classList.toggle('oculto', !!contacto.fotoPerfil);
       document.getElementById('chat-foto').classList.toggle('oculto', !contacto.fotoPerfil);
       if (contacto.fotoPerfil) document.getElementById('chat-foto').src = contacto.fotoPerfil;
-      document.getElementById('chat-estado').textContent = '✅ En línea';
+      
+      // 🟢 NUEVO: Escuchar el estado en tiempo real del contacto seleccionado
+      if (estadoListener) estadoListener();
+      const estadoRef = ref(db, `usuarios/${contacto.uid}/estado`);
+      estadoListener = onValue(estadoRef, (snap) => {
+        const estado = snap.val();
+        const textoEstado = estado?.online ? '✅ En línea' : '❌ Desconectado';
+        document.getElementById('chat-estado').textContent = textoEstado;
+      });
+      
       enviarMensajeDiv.classList.remove('oculto');
       renderizarContactos('');
       renderizarChatsRecientes();
